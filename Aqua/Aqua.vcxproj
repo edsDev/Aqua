@@ -75,6 +75,8 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <AdditionalIncludeDirectories>C:\Users\sunks\Documents\Projects\edslib\edslib\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -111,6 +113,24 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="interpreter.cpp" />
+    <ClCompile Include="interpreter_instructions.cpp" />
+    <ClCompile Include="Source.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="assembly.h" />
+    <ClInclude Include="basic.h" />
+    <ClInclude Include="gc.h" />
+    <ClInclude Include="opcode.h" />
+    <ClInclude Include="interpreter.h" />
+    <ClInclude Include="object.h" />
+    <ClInclude Include="runtime.h" />
+    <ClInclude Include="metadata.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\edslib\edslib\edslib.vcxproj">
+      <Project>{87e3cade-8749-4988-b3e6-0c9f07e58828}</Project>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
