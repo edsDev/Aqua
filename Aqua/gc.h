@@ -4,6 +4,12 @@
 
 namespace eds::aqua::gc
 {
+	// structure of managed heap:
+	// (FreeNode | Object [1 Padding])+
+	// a free node have minimal size of 16 bytes
+
+	static constexpr auto kHeapSize = 64 * 1024 * 1024;
+
 	struct FreeNode
 	{
 		int dummy;
@@ -17,9 +23,22 @@ namespace eds::aqua::gc
 	class ManagedHeap
 	{
 	public:
-		Object* Allocate(TypeInfo* type);
+		ManagedHeap();
+		~ManagedHeap();
+
+		Object* AllocateObject(const TypeInfo* type);
 
 		void MarkObject(Object* obj);
 		void CollectGarbage();
+
+	private:
+		void* AllocChunk(int sz);
+		void MergeChunk(FreeNode* chunk);
+
+		void* heap_begin;
+		void* heap_end;
+
+		FreeNode* free_list_dummy_head;
+		FreeNode* free_list_dummy_tail;
 	};
 }

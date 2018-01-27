@@ -5,13 +5,19 @@
       <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
       <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
     </Filter>
-    <Filter Include="Header Files">
+    <Filter Include="md">
       <UniqueIdentifier>{93995380-89BD-4b04-88EB-625FBE52EBFB}</UniqueIdentifier>
       <Extensions>h;hh;hpp;hxx;hm;inl;inc;xsd</Extensions>
     </Filter>
-    <Filter Include="Resource Files">
+    <Filter Include="memory">
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
+    </Filter>
+    <Filter Include="compiler">
+      <UniqueIdentifier>{c2c6acbf-f16f-439a-b644-0e6e34073c08}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="utils">
+      <UniqueIdentifier>{bb4bbdd1-ca14-4ec0-a822-6b61878548a5}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -24,14 +30,17 @@
     <ClCompile Include="interpreter.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="gc.cpp">
+      <Filter>memory</Filter>
+    </ClCompile>
+    <ClCompile Include="tokenizer.cpp">
+      <Filter>compiler</Filter>
+    </ClCompile>
+    <ClCompile Include="parser.cpp">
+      <Filter>compiler</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="object.h">
-      <Filter>Source Files</Filter>
-    </ClInclude>
-    <ClInclude Include="runtime.h">
-      <Filter>Source Files</Filter>
-    </ClInclude>
     <ClInclude Include="interpreter.h">
       <Filter>Source Files</Filter>
     </ClInclude>
@@ -39,16 +48,43 @@
       <Filter>Source Files</Filter>
     </ClInclude>
     <ClInclude Include="assembly.h">
-      <Filter>Source Files</Filter>
-    </ClInclude>
-    <ClInclude Include="opcode.h">
-      <Filter>Source Files</Filter>
+      <Filter>md</Filter>
     </ClInclude>
     <ClInclude Include="metadata.h">
-      <Filter>Source Files</Filter>
+      <Filter>md</Filter>
     </ClInclude>
     <ClInclude Include="gc.h">
-      <Filter>Source Files</Filter>
+      <Filter>memory</Filter>
+    </ClInclude>
+    <ClInclude Include="object.h">
+      <Filter>memory</Filter>
+    </ClInclude>
+    <ClInclude Include="opcode.h">
+      <Filter>md</Filter>
+    </ClInclude>
+    <ClInclude Include="compiler.h">
+      <Filter>compiler</Filter>
+    </ClInclude>
+    <ClInclude Include="ptr-arithmetic.h">
+      <Filter>utils</Filter>
+    </ClInclude>
+    <ClInclude Include="syntax-manip.h">
+      <Filter>compiler</Filter>
+    </ClInclude>
+    <ClInclude Include="opcode-emit.h">
+      <Filter>compiler</Filter>
+    </ClInclude>
+    <ClInclude Include="tokenizer.h">
+      <Filter>compiler</Filter>
+    </ClInclude>
+    <ClInclude Include="ast-info.h">
+      <Filter>compiler</Filter>
+    </ClInclude>
+    <ClInclude Include="parser.h">
+      <Filter>compiler</Filter>
+    </ClInclude>
+    <ClInclude Include="keywords.h">
+      <Filter>compiler</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

@@ -1,39 +1,76 @@
 #include "interpreter.h"
+#include "ptr-arithmetic.h"
 #include <functional>
 
 using namespace std;
 
 namespace eds::aqua::interpret
 {
-	TypeInfo* const PrimaryTypeI32;
+	extern TypeInfo* const PrimaryTypeI32;
 
-	OpCode* AdvanceOpCode(OpCode* code);
-	OpCode* AdvanceOpCode(OpCode_1* code);
-	OpCode* AdvanceOpCode(OpCode_2* code);
-	OpCode* AdvanceOpCode(OpCode_4* code);
+	const OpCode* AdvanceOpCode(const OpCode* code, int bytes)
+	{
+		return reinterpret_cast<const OpCode*>(AdvancePointer(code, bytes));
+	}
+
+	const OpCode* FetchOpCode(const OpCode* &code)
+	{
+		auto result = code;
+		code = AdvanceOpCode(code, 1);
+
+		return result;
+	}
+	const OpCode_1* FetchOpCode_1(const OpCode* &code)
+	{
+		auto result = reinterpret_cast<const OpCode_1*>(code);
+		code = AdvanceOpCode(code, 2);
+
+		return result;
+	}
+	const OpCode_2* FetchOpCode_2(const OpCode* &code)
+	{
+		auto result = reinterpret_cast<const OpCode_2*>(code);
+		code = AdvanceOpCode(code, 3);
+
+		return result;
+	}
+	const OpCode_4* FetchOpCode_4(const OpCode* &code)
+	{
+		auto result = reinterpret_cast<const OpCode_4*>(code);
+		code = AdvanceOpCode(code, 5);
+
+		return result;
+	}
 
 	void Instruction_Nop(EvalContext& ctx) { }
 
 	void Instruction_LoadConst_I32(EvalContext& ctx) 
 	{
-		auto op = ctx.current_op->RequireDoubleWord();
+		auto op = FetchOpCode_4(ctx.current_op);
 
 		ctx.stack.PushInt32(static_cast<int32_t>(op->operand));
-		ctx.current_op = AdvanceOpCode(op);
 	}
 	void Instruction_LoadArg_N(EvalContext& ctx)
 	{
-		auto op = ctx.current_op->RequireDoubleWord();
+		auto op = FetchOpCode_4(ctx.current_op);
 
 		ctx.stack.PushItem(ctx.args.At(op->operand));
-		ctx.current_op = AdvanceOpCode(op);
 	}
 	void Instruction_LoadLocal_N(EvalContext& ctx)
 	{
-		auto op = ctx.current_op->RequireDoubleWord();
+		auto op = FetchOpCode_4(ctx.current_op);
 
 		ctx.stack.PushItem(ctx.locals.At(op->operand));
-		ctx.current_op = AdvanceOpCode(op);
+	}
+
+	void Instruction_StoreLocal_N(EvalContext& ctx)
+	{
+		auto op = FetchOpCode_4(ctx.current_op);
+		auto item = ctx.stack.PopItem();
+		auto& slot = ctx.locals.At(op->operand);
+
+		assert(slot.type == item.type);
+		slot = item;
 	}
 
 	template <typename F>
@@ -94,7 +131,7 @@ namespace eds::aqua::interpret
 
 		// Store Family
 		//
-		result[Instruction::ldloc_n] = &Instruction_LoadLocal_N;
+		result[Instruction::stloc_n] = &Instruction_LoadLocal_N;
 
 		// Arithmetic
 		//

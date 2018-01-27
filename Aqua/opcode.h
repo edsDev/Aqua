@@ -45,9 +45,9 @@ namespace eds::aqua
 
 			// Logical Operation Family
 			//
-			not,
-			both,
-			either,
+			lg_not,
+			lg_and,
+			lg_or,
 			cmp_eq,
 			cmp_neq,
 			cmp_lt,
@@ -67,8 +67,6 @@ namespace eds::aqua
 			// newobj,
 			// newarr,
 		};
-
-		Code value;
 	};
 
 	struct OpCode;
@@ -76,28 +74,27 @@ namespace eds::aqua
 	struct OpCode_2;
 	struct OpCode_4;
 
+#pragma pack(push, 1)
 	struct OpCode
 	{
-		Instruction code;
-
-		OpCode_1* RequireByte();
-		OpCode_2* RequireWord();
-		OpCode_4* RequireDoubleWord();
+		Instruction::Code code;
 	};
 
 	struct OpCode_1
 	{
-		Instruction code;
+		Instruction::Code code;
 		uint8_t operand;
 	};
 	struct OpCode_2
 	{
-		Instruction code;
+		Instruction::Code code;
 		uint16_t operand;
 	};
 	struct OpCode_4
 	{
-		Instruction code;
+		Instruction::Code code;
 		uint32_t operand;
 	};
+#pragma pack(pop)
+
 }

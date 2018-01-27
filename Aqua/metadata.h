@@ -4,49 +4,65 @@
 
 namespace eds::aqua
 {
-	class FieldInfo
+	class TypeInfo;
+	class FieldInfo;
+
+	class ParameterInfo;
+	class VariableInfo;
+	class FunctionInfo;
+
+	struct FieldInfo
 	{
-	public:
-		TypeInfo* Type() const;
-		string_view Name() const;
+		// name
+		string_view name;
+		// data type
+		const TypeInfo* type;
+		// object layout offset 
+		int offset;
 	};
 
-	class TypeInfo
+	struct TypeInfo
 	{
-	public:
-		string_view Name() const;
+		// unique type id in an assembly
+		uint32_t id;
 
+		string_view  name;
+
+		uint32_t flags;
+		// size of object body
+		int32_t size;
+		// view to field information
+		ArrayView<FieldInfo> fields;
+
+	public:
 		bool IsPrimaryType() const;
-		bool IsEnumType() const;
 		bool IsKlassType() const;
-
-		int Size() const;
-		ArrayView<FieldInfo*> Fields();
 	};
 
-	class ParameterInfo
+	struct ParameterInfo
 	{
-	public:
-		TypeInfo* Type() const;
-		string_view Name() const;
+		string_view name;
+
+		const TypeInfo* type;
 	};
 
-	class VariableInfo
+	struct VariableInfo
 	{
-	public:
-		TypeInfo* Type() const;
-		string_view Name() const;
+		string_view name;
+
+		const TypeInfo* type;
 	};
 
-	class FunctionInfo
+	struct FunctionInfo
 	{
-	public:
-		string_view Name()	const;
+		// unique function id in an assembly
+		uint32_t id;
+		//
+		string_view name;
 
-		TypeInfo* ReturnType() const;
-		ArrayView<ParameterInfo*> Parameters() const;
-
-		ArrayView<VariableInfo*> LocalVariables() const;
-		ArrayView<OpCode> Instructions() const;
+		const TypeInfo* return_type;
+		ArrayView<ParameterInfo> parameters;
+		ArrayView<VariableInfo*> locals;
+		ArrayView<OpCode> instructions;
 	};
 }

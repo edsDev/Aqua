@@ -76,7 +76,7 @@
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>C:\Users\sunks\Documents\Projects\edslib\edslib\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>C:\Users\sunks\Documents\Projects\Lolita\Lolita;C:\Users\sunks\Documents\Projects\edslib\edslib\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -113,23 +113,36 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="gc.cpp" />
     <ClCompile Include="interpreter.cpp" />
     <ClCompile Include="interpreter_instructions.cpp" />
+    <ClCompile Include="parser.cpp" />
     <ClCompile Include="Source.cpp" />
+    <ClCompile Include="tokenizer.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="assembly.h" />
+    <ClInclude Include="ast-info.h" />
     <ClInclude Include="basic.h" />
+    <ClInclude Include="compiler.h" />
     <ClInclude Include="gc.h" />
+    <ClInclude Include="keywords.h" />
+    <ClInclude Include="opcode-emit.h" />
     <ClInclude Include="opcode.h" />
     <ClInclude Include="interpreter.h" />
     <ClInclude Include="object.h" />
-    <ClInclude Include="runtime.h" />
+    <ClInclude Include="parser.h" />
+    <ClInclude Include="ptr-arithmetic.h" />
     <ClInclude Include="metadata.h" />
+    <ClInclude Include="syntax-manip.h" />
+    <ClInclude Include="tokenizer.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\edslib\edslib\edslib.vcxproj">
       <Project>{87e3cade-8749-4988-b3e6-0c9f07e58828}</Project>
+    </ProjectReference>
+    <ProjectReference Include="..\..\Lolita\Lolita\Lolita.vcxproj">
+      <Project>{d97b09ee-cd21-4ecb-ac07-1b010cf59867}</Project>
     </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

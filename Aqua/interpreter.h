@@ -32,13 +32,26 @@ namespace eds::aqua::interpret
 	class EvalStack
 	{
 	public:
-		void PushItem(EvalItem item);
+		void PushItem(EvalItem item)
+		{
+			stack_.push_back(item);
+		}
+		void PushNull(TypeInfo* type);
 		void PushObject(Object* value);
 		void PushInt32(int32_t value);
 
-		EvalItem PopItem();
+		EvalItem PopItem()
+		{
+			auto result = stack_.back();
+			stack_.pop_back();
 
-		const auto& Data() const;
+			return result;
+		}
+
+		const auto& Data() const
+		{
+			return stack_;
+		}
 
 	private:
 		std::vector<EvalItem> stack_;
@@ -49,11 +62,11 @@ namespace eds::aqua::interpret
 		bool returned;
 		EvalStack stack;
 
-		OpCode* current_op;
+		const OpCode* current_op;
 		ArrayView<OpCode> instructions;
 
 		ArrayView<EvalItem> args;
-		ArrayView<EvalItem> locals;
+		ArrayRef<EvalItem> locals;
 	};
 
 	using InstructionDelegate = void (*)(EvalContext& ctx);
@@ -62,57 +75,63 @@ namespace eds::aqua::interpret
 	class Interpreter
 	{
 	public:
+		Interpreter(std::unique_ptr<Assembly> assembly);
 
 		void Bootstrap()
 		{
-
+			// invoke main function
 		}
 
 		void Invoke(FunctionInfo* func)
 		{
 			static InstructionDelegateArray delegates;
 
-			auto opcodes = func->Instructions();
-			auto args = LoadArguments(func);
-			auto locals = LoadLocals(func);
-
-			auto p = opcodes.BeginPtr();
-			while (true)
+			auto ctx = CreateEvalContext(func);
+			while (!ctx.returned)
 			{
-				assert(std::distance(p, opcodes.EndPtr()) > 0);
-				assert(delegates[p->code.value]);
+				assert(std::distance(ctx.current_op, ctx.instructions.EndPtr()) > 0);
+				assert(delegates[ctx.current_op->code]);
 
 				// execute and advance opcode at p
-				p = delegates[p->code.value](p, opcodes, args, locals);
+				delegates[ctx.current_op->code](ctx);
 			}
 		}
 
 	private:
+		EvalContext CreateEvalContext(FunctionInfo* func)
+		{
+			EvalContext result;
+			
+			result.instructions = func->instructions;
+			result.args = LoadArguments(func);
+			result.locals = LoadLocals(func);
+
+			result.returned = false;
+			result.current_op = result.instructions.BeginPtr();
+
+			return result;
+		}
+
 		ArrayView<EvalItem> LoadArguments(FunctionInfo* func)
 		{
-			return TakeEnd(call_stack_, func->Parameters().Length());
+			throw 0;
 		}
 
-		ArrayView<EvalItem> LoadLocals(FunctionInfo* func)
+		ArrayRef<EvalItem> LoadLocals(FunctionInfo* func)
 		{
-
+			throw 0;
 		}
 
-		ArrayView<EvalItem> TakeEnd(std::vector<EvalItem>& v, int len)
+		Object* AllocateObject(TypeInfo* type)
 		{
-
-		}
-
-		Object* Allocate(TypeInfo* type)
-		{
-			auto ptr = heap_.Allocate(type);
+			auto ptr = heap_.AllocateObject(type);
 			
 			// return if object is successfully allocated
 			if (ptr) return ptr;
 			
 			// try to collect garbage in the heap and give an attempt again
 			CollectGarbage();
-			ptr = heap_.Allocate(type);
+			ptr = heap_.AllocateObject(type);
 
 			// return if object is successfully allocated
 			if (ptr) return ptr;
