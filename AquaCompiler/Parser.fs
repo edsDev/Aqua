@@ -50,14 +50,44 @@ module ParsecInstance =
     let betweenBracket = fun p -> betweenCharDelimiter '[' ']' p
     let betweenBrace   = fun p -> betweenCharDelimiter '{' '}' p
 
+
+    // assumes opString does not affect line number
+    let adjustPosition opString (pos: Position) =
+        let offset = opString |> String.length |> (~-) |> int64
+
+        Position(pos.StreamName, pos.Index + offset,
+                 pos.Line, pos.Column + offset)
+
+    let makeRange (posStart: Position) (posEnd: Position) =
+        { StartIndex    = int <| posStart.Index
+          Length        = int <| posEnd.Index - posStart.Index
+          StartLine     = int <| posStart.Line
+          StartColumn   = int <| posStart.Column }
+
+    let withRange f p =
+        pipe3 getPosition p getPosition
+              (fun posStart result posEnd ->
+                   f (makeRange posStart posEnd) result)
+
+    let withRange1 ctor p =
+        p |> withRange (fun rg (x1) -> ctor (rg, x1))
+    let withRange2 ctor p =
+        p |> withRange (fun rg (x1, x2) -> ctor (rg, x1, x2))
+    let withRange3 ctor p =
+        p |> withRange (fun rg (x1, x2, x3) -> ctor (rg, x1, x2, x3))
+    let withRange4 ctor p =
+        p |> withRange (fun rg (x1, x2, x3, x4) -> ctor (rg, x1, x2, x3, x4))
+
     // identifiers
     //
-    let pIdent =
+    let pSimpleIdentifier =
         let pkeyword = keywords |> List.map skipString |> choice
         let idOption = IdentifierOptions()
 
-        notFollowedByL pkeyword "keyword" >>. identifier idOption .>> pws
-        |>> Identifier
+        notFollowedByL pkeyword "keyword" >>. identifier idOption
+
+    let pIdent =
+        pSimpleIdentifier .>> pws
 
     // literals
     //
@@ -87,13 +117,14 @@ module ParsecInstance =
         let pAtomicType = pSystemType <|> pCustomType
         let pReturnType = skipString_ws "->" >>. pType
 
-        let makeFunctionType src ret = FunctionType(List.singleton src, ret)
+        let makeFunctionType src ret = 
+            FunctionSignature(List.singleton src, ret) |> FunctionType
 
         let pWithParamsInParathe =
             (pType |> sepByComma |> betweenParathe) .>>. (many pReturnType)
             >>= function
                 | [x], []  -> preturn x
-                | t, x::xs -> preturn (List.fold makeFunctionType (FunctionType(t, x)) xs)
+                | t, x::xs -> preturn (List.fold makeFunctionType (FunctionType <| FunctionSignature(t, x)) xs)
                 | [], []   -> fail "empty type is not allowed"
                 | _, []    -> fail "type list is not allowed"
 
@@ -108,36 +139,17 @@ module ParsecInstance =
     let pTypeAnnot =
         (skipChar_ws ':') >>. pType <?> "type annotation"
     let pTypeAnnotOpt =
-        pTypeAnnot <|>% TBD
+        opt pTypeAnnot
 
     // expression
     //
     let pLiteralExpr =
-        pLiteral |>> LiteralExpr
+        pLiteral |> withRange1 LiteralExpr
 
     let pNamedExpr =
-        pIdent |>> NamedExpr
+        pIdent |> withRange1 NamedExpr
 
     let pExpr =
-        let translateBinaryOp = function
-            | "+" -> Op_Plus
-            | "-" -> Op_Minus
-            | "*" -> Op_Asterisk
-            | "/" -> Op_Slash
-            | "%" -> Op_Modulus
-            | ">" -> Op_Greater
-            | ">=" -> Op_GreaterEq
-            | "<" -> Op_Less
-            | "<=" -> Op_LessEq
-            | "==" -> Op_Equal
-            | "!=" -> Op_NotEqual
-            | "&" -> Op_BitwiseAnd
-            | "|" -> Op_BitwiseOr
-            | "^" -> Op_BitwiseXor
-            | "&&" -> Op_LogicalAnd
-            | "||" -> Op_LogicalOr
-            | _ -> failwith "not a valid BinaryOp"
-
         let opp = OperatorPrecedenceParser()
 
         let pAtomicExpr = 
@@ -145,52 +157,72 @@ module ParsecInstance =
         
         // TODO: add member access suffix
         let pInvocationExpr = 
-            pipe2 pAtomicExpr (opp.ExpressionParser |> sepByComma |> betweenParathe |> many)
-                  (List.fold (fun expr args -> InvocationExpr(expr, args)))
-            
+            let callSuffix = opp.ExpressionParser |> sepByComma |> betweenParathe
+
+            pipe2 pAtomicExpr (many (tuple3 getPosition callSuffix getPosition))
+                  (List.fold (fun expr (posStart, args, posEnd) -> 
+                                  let rg = makeRange posStart posEnd
+                                  InvocationExpr(rg, expr, args)))
+
         opp.TermParser <- pInvocationExpr
 
         let assocLeft = Associativity.Left
         let assocRight = Associativity.Right
 
+        let makeTypePostfixOp ctor opString assoc prec =
+            let pAfterString =
+                tuple3 getPosition (pws >>. pType |>> Some) getPosition
+
+            PostfixOperator(opString, pAfterString, prec, assoc, (),
+                            fun (posStart, type', posEnd) value ->
+                                let rg = makeRange (adjustPosition opString posStart) posEnd
+                                ctor (rg, value, Option.get type')) 
+            :> Operator<_, _, _>
+
         // workaround: some expression may need to parse a succeeding type
-        let addInfixOp prefix prec assoc =
-            let op = InfixOperator(prefix, pws >>. (preturn TBD), prec, assoc, (),
-                                   fun _ lhs rhs -> BinaryExpr(translateBinaryOp prefix, lhs, rhs))
-            opp.AddOperator(op)
+        let makeBinaryOp opType opString assoc prec =
+            let pAfterString =
+                tuple3 getPosition (pws >>. preturn None) getPosition
 
-        let addTypePostfixOp prefix prec assoc ctor =
-            let op = PostfixOperator(prefix, pws >>. pType, prec, assoc, (),
-                                     fun type' value -> ctor (value, type'))
-            opp.AddOperator(op)
+            InfixOperator(opString, pAfterString, prec, assoc, (),
+                          fun (posStart, _, posEnd) lhs rhs -> 
+                              let rg = makeRange (adjustPosition opString posStart) posEnd
+                              BinaryExpr(rg, opType, lhs, rhs))
+            :> Operator<_, _, _>
 
-        // disjunction 1
-        addInfixOp "||" 1 assocLeft
-        // conjunction 2
-        addInfixOp "&&" 2 assocLeft
-        // equality 3
-        addInfixOp "==" 3 assocLeft
-        addInfixOp "!=" 3 assocLeft
-        // comprison 4
-        addInfixOp ">" 4 assocLeft
-        addInfixOp "<" 4 assocLeft
-        addInfixOp ">=" 4 assocLeft
-        addInfixOp "<=" 4 assocLeft
-        // type check 5
-        addTypePostfixOp "is" 5 false TypeCheckExpr
-        // bitwise operation
-        addInfixOp "&" 6 assocLeft
-        addInfixOp "|" 6 assocLeft
-        addInfixOp "^" 6 assocLeft
-        // additive 7
-        addInfixOp "+" 7 assocLeft
-        addInfixOp "-" 7 assocLeft
-        // multiplicative 8
-        addInfixOp "*" 8 assocLeft
-        addInfixOp "/" 8 assocLeft
-        addInfixOp "%" 8 assocLeft
-        // type conversion 8
-        addTypePostfixOp "as" 9 false TypeConvertExpr
+        [ // assignment
+          [ makeBinaryOp Op_Assign "=" assocRight ]
+          // disjunction
+          [ makeBinaryOp Op_Disjunction "||" assocLeft ]
+          // conjunction
+          [ makeBinaryOp Op_Conjunction "&&" assocLeft ]
+          // equality
+          [ makeBinaryOp Op_Equal "==" assocLeft
+            makeBinaryOp Op_NotEqual "!=" assocLeft ]
+          // comparison
+          [ makeBinaryOp Op_Greater ">" assocLeft 
+            makeBinaryOp Op_Less "<" assocLeft
+            makeBinaryOp Op_GreaterEq ">=" assocLeft
+            makeBinaryOp Op_LessEq "<=" assocLeft ]
+          // type check
+          [ makeTypePostfixOp TypeCheckExpr "is" false ]
+          // bitwise op
+          [ makeBinaryOp Op_BitwiseAnd "&" assocLeft 
+            makeBinaryOp Op_BitwiseOr "|" assocLeft
+            makeBinaryOp Op_BitwiseXor "^" assocLeft ]
+          // additive
+          [ makeBinaryOp Op_Plus "+" assocLeft
+            makeBinaryOp Op_Minus "-" assocLeft ]
+          // multiplicative
+          [ makeBinaryOp Op_Asterisk "*" assocLeft
+            makeBinaryOp Op_Slash "/" assocLeft
+            makeBinaryOp Op_Modulus "%" assocLeft ]
+          // type cast
+          [ makeTypePostfixOp TypeCastExpr "as" false ]
+        ]
+        |> List.mapi (fun i fs -> fs |> List.map (fun f -> f (i+1)))
+        |> List.collect id
+        |> List.iter (fun op -> opp.AddOperator(op))
 
         opp.ExpressionParser <?> "expression"
 
@@ -199,7 +231,7 @@ module ParsecInstance =
     let pStmt, pStmtImpl = createParserForwardedToRef()
 
     let pExpressionStmt =
-        pExpr |>> ExpressionStmt
+        pExpr |> withRange1 ExpressionStmt
 
     let pVarDeclStmt =
         let pkeyword = 
@@ -209,7 +241,7 @@ module ParsecInstance =
         let ptype = pTypeAnnotOpt
         let pinit = skipChar_ws '=' >>. pExpr
     
-        tuple4 pkeyword pname ptype pinit |>> VarDeclStmt
+        tuple4 pkeyword pname ptype pinit |> withRange4 VarDeclStmt
 
     let pChoiceStmt =
         let pif = skipString_ws "if"
@@ -218,48 +250,52 @@ module ParsecInstance =
         let pposi = pStmt
         let pnega = opt (pelse >>. pStmt)
 
-        pif >>. (tuple3 ptest pposi pnega) |>> ChoiceStmt
+        pif >>. (tuple3 ptest pposi pnega) |> withRange3 ChoiceStmt
 
     let pWhileStmt =
         let pwhile = skipString_ws "while"
         let ptest = betweenParathe pExpr
         let pbody = pStmt
 
-        pwhile >>. (tuple2 ptest pbody) |>> WhileStmt
+        pwhile >>. (tuple2 ptest pbody) |> withRange2 WhileStmt
 
     let pControlFlowStmt =
         choice [stringReturn_ws "break" Break; stringReturn_ws "continue" Continue]
-        |>> ControlFlowStmt
+        |> withRange1 ControlFlowStmt
 
     let pReturnStmt =
         let preturn = skipString_ws "return"
         let pvalue = opt pExpr
 
-        preturn >>. pvalue |>> ReturnStmt
+        preturn >>. pvalue |> withRange1 ReturnStmt
 
     let pCompoundStmt =
-        many pStmt |> betweenBrace |>> CompoundStmt
+        many pStmt |> betweenBrace |> withRange1 CompoundStmt
 
     do pStmtImpl :=
         choiceL [
-            pVarDeclStmt;
+            pCompoundStmt;
             pChoiceStmt;
             pWhileStmt;
+            pVarDeclStmt;
             pControlFlowStmt;
             pReturnStmt;
-            pCompoundStmt;
             pExpressionStmt; ] "statement"
         .>> optional (skipChar_ws ';')
 
     // declaration
     //
+    let pModuleIdent =
+        sepBy1 pSimpleIdentifier (skipChar '.') .>> pws
+        |>> (List.toArray >> (fun x -> ModuleIdent(x)))
+
     let pModule =
-        skipString_ws "module" >>. pIdent 
+        skipString_ws "module" >>. pModuleIdent 
         |>> ModuleDecl
         <?> "module declaration"
 
     let pImport =
-        skipString_ws "import" >>. pIdent 
+        skipString_ws "import" >>. pModuleIdent 
         |>> ImportDecl
         <?> "import declaration"
 
@@ -268,7 +304,7 @@ module ParsecInstance =
         let pname = pIdent
         let psignature = 
             let paramList =
-                pIdent .>>. pTypeAnnot |>> NameTypePair
+                pIdent .>>. pTypeAnnot
                 |> sepByComma
                 |> betweenParathe
             let retType =

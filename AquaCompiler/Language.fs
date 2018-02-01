@@ -9,22 +9,26 @@ type BuiltinType =
     | Int
 
 type BinaryOp =
+    | Op_Assign
+
     | Op_Plus
     | Op_Minus
     | Op_Asterisk
     | Op_Slash
     | Op_Modulus
+
+    | Op_Equal
+    | Op_NotEqual
     | Op_Greater
     | Op_GreaterEq
     | Op_Less
     | Op_LessEq
-    | Op_Equal
-    | Op_NotEqual
+
     | Op_BitwiseAnd
     | Op_BitwiseOr
     | Op_BitwiseXor
-    | Op_LogicalAnd
-    | Op_LogicalOr
+    | Op_Conjunction
+    | Op_Disjunction
 
 type ControlFlow = 
     | Break | Continue
@@ -37,15 +41,17 @@ type AccessModifier =
 
 // type
 type TypeStub =
-    | SystemTypeStub of BuiltinType
-    | UserTypeStub of string
-    | FunctionTypeStub of FunctionSignature
+    | WildcardType // a internal placeholder type
+    | SystemType of BuiltinType
+    | UserType of string
+    | FunctionType of FunctionSignature
 with
     override m.ToString() =
         match m with
-        | SystemTypeStub(t) -> t.ToString()
-        | UserTypeStub(name) -> name
-        | FunctionTypeStub(s) -> s.ToString()
+        | WildcardType -> "WILDCARD"
+        | SystemType(t) -> t.ToString()
+        | UserType(name) -> name
+        | FunctionType(s) -> s.ToString()
 and FunctionSignature =
     | FunctionSignature of TypeStub list * TypeStub
 with
@@ -58,39 +64,59 @@ with
         sprintf "(%s) -> %A" (String.Join(",", m.ParamTypeList)) (m.ReturnType)
 
 // shortcuts for system type
-let UnitType = SystemTypeStub Unit
-let BoolType = SystemTypeStub Bool
-let IntType = SystemTypeStub Int
+let kUnitType = SystemType Unit
+let kBoolType = SystemType Bool
+let kIntType = SystemType Int
 
 // definitions
 type FunctionDefinition =
-    | FunctionDefinition of name:string * signature: FunctionSignature
+    | FunctionDefinition of name:string * access:AccessModifier * signature: FunctionSignature
+with
+    member m.Name =
+        match m with | FunctionDefinition(x, _, _) -> x
+    member m.Access =
+        match m with | FunctionDefinition(_, x, _) -> x
+    member m.Signature =
+        match m with | FunctionDefinition(_, _, x) -> x
 
 type EnumItem =
     | EnumItem of name:string
 type EnumDefinition =
     | EnumDefinition of name:string * values:EnumItem list
+with
+    member m.Name =
+        match m with | EnumDefinition(x, _) -> x
+    member m.Values =
+        match m with | EnumDefinition(_, x) -> x
 
 type KlassField =
     | KlassField of name:string * access:AccessModifier * type':TypeStub
-type KlassMethod =
-    | KlassMethod of name:string * access:AccessModifier * signature:FunctionSignature
 type KlassDefinition =
-    | KlassDefinition of name:string * fields:KlassField list * methods:KlassMethod list
+    | KlassDefinition of name:string * fields:KlassField list * methods:FunctionDefinition list
+with
+    member m.Name =
+        match m with | KlassDefinition(x, _, _) -> x
+    member m.Fields =
+        match m with | KlassDefinition(_, x, _) -> x
+    member m.Methods =
+        match m with | KlassDefinition(_, _, x) -> x
 
 // module
 //
-type ModuleId =
-    | ModuleId of IReadOnlyList<string>
+type ModuleIdent =
+    | ModuleIdent of IReadOnlyList<string>
 with 
     member m.NameList = 
-        match m with | ModuleId(x) -> x
+        match m with | ModuleIdent(x) -> x
+
+    member m.TerminalName =
+        m.NameList.Item (m.NameList.Count-1)
 
     override m.ToString() = String.Join(".", m.NameList)
 
 type BasicModuleInfo =
-    { ModuleName: ModuleId;
-      ImportList: ModuleId list;
+    { ModuleName: ModuleIdent;
+      ImportList: ModuleIdent list;
       EnumList: EnumDefinition list;
       KlassList: KlassDefinition list;
       FunctionList: FunctionDefinition list; }

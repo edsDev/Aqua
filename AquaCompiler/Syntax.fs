@@ -2,50 +2,90 @@
 
 open Aqua.Language
 
-type Identifier =
-    | Identifier of string
+type Range =
+    { StartIndex: int; Length: int; StartLine: int; StartColumn: int }
 
-type SyntaxType =
-    | TBD
-    | SystemType of BuiltinType
-    | UserType of Identifier
-    | FunctionType of SyntaxType list*SyntaxType
+    static member Empty =
+        { StartIndex = -1; Length = -1; StartLine = -1; StartColumn = -1 }
 
 type Literal =
     | BoolConst of bool
     | IntConst of int
 
 type Expression =
-    | LiteralExpr of Literal
-    | NamedExpr of Identifier
-    | InvocationExpr of Expression*Expression list
-    | TypeCheckExpr of Expression*SyntaxType
-    | TypeConvertExpr of Expression*SyntaxType
-    | BinaryExpr of BinaryOp*Expression*Expression
+    | LiteralExpr       of Range*Literal
+    | NamedExpr         of Range*string
+    | InvocationExpr    of Range*Expression*Expression list
+    | TypeCheckExpr     of Range*Expression*TypeStub
+    | TypeCastExpr      of Range*Expression*TypeStub
+    | BinaryExpr        of Range*BinaryOp*Expression*Expression
+
+    member m.Range =
+        match m with
+        | LiteralExpr(rg, _)        -> rg
+        | NamedExpr(rg, _)          -> rg
+        | InvocationExpr(rg, _, _)  -> rg
+        | TypeCheckExpr(rg, _, _)   -> rg
+        | TypeCastExpr(rg, _, _)    -> rg
+        | BinaryExpr(rg, _, _, _)   -> rg
 
 type Statement =
-    | ExpressionStmt of Expression
-    | VarDeclStmt of MutablityModifier*Identifier*SyntaxType*Expression
-    | ChoiceStmt of Expression*Statement*Statement option
-    | WhileStmt of Expression*Statement
-    | ControlFlowStmt of ControlFlow
-    | ReturnStmt of Expression option
-    | CompoundStmt of Statement list
+    | ExpressionStmt    of Range*Expression
+    | VarDeclStmt       of Range*MutablityModifier*string*TypeStub option*Expression
+    | ChoiceStmt        of Range*Expression*Statement*Statement option
+    | WhileStmt         of Range*Expression*Statement
+    | ControlFlowStmt   of Range*ControlFlow
+    | ReturnStmt        of Range*Expression option
+    | CompoundStmt      of Range*Statement list
 
-type NameTypePair =
-    | NameTypePair of Identifier*SyntaxType
+    member m.Range =
+        match m with
+        | ExpressionStmt(rg, _)         -> rg
+        | VarDeclStmt(rg, _, _, _, _)   -> rg
+        | ChoiceStmt(rg, _, _, _)       -> rg
+        | WhileStmt(rg, _, _)           -> rg
+        | ControlFlowStmt(rg, _)        -> rg
+        | ReturnStmt(rg, _)             -> rg
+        | CompoundStmt(rg, _)           -> rg
 
 type FunctionDeclarator =
-    | FunctionDeclarator of NameTypePair list*SyntaxType
+    | FunctionDeclarator of (string*TypeStub) list*TypeStub
+
+    member m.ParamList =
+        match m with | FunctionDeclarator(ps, _) -> ps
+
+    member m.ReturnType =
+        match m with | FunctionDeclarator(_, ret) -> ret
 
 type ModuleDecl =
-    | ModuleDecl of Identifier
+    | ModuleDecl of ModuleIdent
+
+    member m.Name =
+        match m with | ModuleDecl(name) -> name
+
 type ImportDecl =
-    | ImportDecl of Identifier
+    | ImportDecl of ModuleIdent
+
+    member m.Name =
+        match m with | ImportDecl(name) -> name
+
 type FunctionDecl =
-    | FunctionDecl of Identifier*FunctionDeclarator*Statement
+    | FunctionDecl of string*FunctionDeclarator*Statement
+
+    member m.Name =
+        match m with | FunctionDecl(name, _, _) -> name
+
+    member m.Declarator =
+        match m with | FunctionDecl(_, d, _) -> d
+
+    member m.Body =
+        match m with | FunctionDecl(_, _, body) -> body
+
 type KlassDecl =
-    | KlassDecl of Identifier
+    | KlassDecl of string
+
+    member m.Name =
+        match m with | KlassDecl(name) -> name
 
 type CodePage =
     { ModuleInfo  : ModuleDecl;
