@@ -12,12 +12,29 @@ type Literal =
     | BoolConst of bool
     | IntConst of int
 
+type SyntaxType =
+    | SystemType    of Range*BuiltinTypeCategory
+    | UserType      of Range*string
+    | FunctionType  of Range*SyntaxType list*SyntaxType
+
+    member m.Range =
+        match m with 
+        | SystemType(rg, _)         -> rg
+        | UserType(rg, _)           -> rg
+        | FunctionType(rg, _, _)    -> rg
+
+    member m.Stub =
+        match m with
+        | SystemType(_, kind)       -> SystemStub(kind)
+        | UserType(_, name)         -> UserStub(name)
+        | FunctionType(_, xs, y)    -> makeFunctionStub (xs |> List.map (fun x -> x.Stub)) y.Stub
+
 type Expression =
     | LiteralExpr       of Range*Literal
     | NamedExpr         of Range*string
     | InvocationExpr    of Range*Expression*Expression list
-    | TypeCheckExpr     of Range*Expression*TypeStub
-    | TypeCastExpr      of Range*Expression*TypeStub
+    | TypeCheckExpr     of Range*Expression*SyntaxType
+    | TypeCastExpr      of Range*Expression*SyntaxType
     | BinaryExpr        of Range*BinaryOp*Expression*Expression
 
     member m.Range =
@@ -31,7 +48,7 @@ type Expression =
 
 type Statement =
     | ExpressionStmt    of Range*Expression
-    | VarDeclStmt       of Range*MutablityModifier*string*TypeStub option*Expression
+    | VarDeclStmt       of Range*MutablityModifier*string*SyntaxType option*Expression
     | ChoiceStmt        of Range*Expression*Statement*Statement option
     | WhileStmt         of Range*Expression*Statement
     | ControlFlowStmt   of Range*ControlFlow
@@ -49,7 +66,7 @@ type Statement =
         | CompoundStmt(rg, _)           -> rg
 
 type FunctionDeclarator =
-    | FunctionDeclarator of (string*TypeStub) list*TypeStub
+    | FunctionDeclarator of (string*SyntaxType) list*SyntaxType
 
     member m.ParamList =
         match m with | FunctionDeclarator(ps, _) -> ps
@@ -74,12 +91,18 @@ type FunctionDecl =
 
     member m.Name =
         match m with | FunctionDecl(name, _, _) -> name
-
     member m.Declarator =
         match m with | FunctionDecl(_, d, _) -> d
-
     member m.Body =
         match m with | FunctionDecl(_, _, body) -> body
+
+    member m.Signature =
+        match m with
+        | FunctionDecl(_, FunctionDeclarator(paramList, ret), _) ->
+            let paramTypes = paramList |> List.map (fun (_, x) -> x.Stub)
+            let retType = ret.Stub
+            
+            FunctionSignature(paramTypes, retType)
 
 type KlassDecl =
     | KlassDecl of string

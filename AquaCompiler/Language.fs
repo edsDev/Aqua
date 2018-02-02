@@ -3,7 +3,7 @@
 open System
 open System.Collections.Generic
 
-type BuiltinType =
+type BuiltinTypeCategory =
     | Unit
     | Bool
     | Int
@@ -40,18 +40,19 @@ type AccessModifier =
     | Private | Public
 
 // type
+//
 type TypeStub =
-    | WildcardType // a internal placeholder type
-    | SystemType of BuiltinType
-    | UserType of string
-    | FunctionType of FunctionSignature
+    | WildcardStub // a internal placeholder type
+    | SystemStub of BuiltinTypeCategory
+    | UserStub of string
+    | FunctionStub of FunctionSignature
 with
     override m.ToString() =
         match m with
-        | WildcardType -> "WILDCARD"
-        | SystemType(t) -> t.ToString()
-        | UserType(name) -> name
-        | FunctionType(s) -> s.ToString()
+        | WildcardStub -> "WILDCARD"
+        | SystemStub(t) -> t.ToString()
+        | UserStub(name) -> name
+        | FunctionStub(s) -> s.ToString()
 and FunctionSignature =
     | FunctionSignature of TypeStub list * TypeStub
 with
@@ -63,12 +64,16 @@ with
     override m.ToString() =
         sprintf "(%s) -> %A" (String.Join(",", m.ParamTypeList)) (m.ReturnType)
 
-// shortcuts for system type
-let kUnitType = SystemType Unit
-let kBoolType = SystemType Bool
-let kIntType = SystemType Int
+// shortcuts for TypeStub construction
+let kUnitType = SystemStub Unit
+let kBoolType = SystemStub Bool
+let kIntType = SystemStub Int
+
+let makeFunctionStub paramTypes retType =
+    FunctionStub <| FunctionSignature(paramTypes, retType)
 
 // definitions
+//
 type FunctionDefinition =
     | FunctionDefinition of name:string * access:AccessModifier * signature: FunctionSignature
 with

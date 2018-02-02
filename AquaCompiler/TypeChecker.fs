@@ -7,23 +7,24 @@ open Aqua.Compiler
 
 open Aqua.Compiler.TranslationEnvironment
 open Aqua.Compiler.TranslationContext
+open System.Runtime.InteropServices
 
 let (|UnaryWildcard|_|) t =
     match t with
-    | WildcardType -> Some ()
+    | WildcardStub -> Some ()
     | _ -> None
 
 let (|BinaryWildcard|_|) ts =
     match ts with
-    | WildcardType, _ 
-    | _, WildcardType -> Some()
+    | WildcardStub, _ 
+    | _, WildcardStub -> Some()
     | _ -> None
 
 let existImplicitConversion env srcType destType =
     match srcType, destType with
-    | WildcardType, _                   -> true
-    | _, WildcardType                   -> true
-    | SystemType(t1), SystemType(t2)    -> t1=t2
+    | WildcardStub, _                   -> true
+    | _, WildcardStub                   -> true
+    | SystemStub(t1), SystemStub(t2)    -> t1=t2
     | _                                 -> false
 
 let isInvocable env signature argTypeList =
@@ -32,168 +33,210 @@ let isInvocable env signature argTypeList =
     List.length paramTypeList = List.length argTypeList &&
     List.forall2 (existImplicitConversion env) argTypeList paramTypeList
 
+let isAssignable env varLookup expr =
+    match expr with
+    | NamedExpr(_, name) -> 
+        match varLookup name with
+        | Some(VariableLookupItem(_, Mutable, _)) -> true
+        | _ -> false
+
+    | _ -> false
+
+let resolveFunctionCall env rg typeName funcName argTypeList =
+    // TODO: refine overload resolving
+    let functions = 
+        lookupFunction env "" funcName
+        |> List.filter (fun def -> isInvocable env def.Signature argTypeList)
+
+    match functions with
+    | [x] ->
+        registerExprType x.Signature.ReturnType
+    | [] ->
+        appendExprError (invalidFunctionCall rg funcName argTypeList)
+    | _ ->
+        appendExprError (invalidFunctionResolve rg funcName argTypeList)
+
+let resolveExpressionCall env rg exprType argTypeList =
+    match exprType with
+    | FunctionStub(signature) when isInvocable env signature argTypeList ->
+        registerExprType signature.ReturnType
+    | _ ->
+        appendExprError (invalidExpressionCall rg argTypeList)
+
+type ExpressionChecker = 
+    TranslationContextType -> Expression -> TranslationContextType
+type StatementChecker = 
+    TranslationContextType -> Statement -> TranslationContextType
+
+let rec checkType env ctx type' =
+    ctx
+
 let rec checkExpr env ctx expr =
 
     // shortcuts for ease of recursive invocation
     //
-    let checkExpr = checkExpr env
+    let checkExprAux = checkExpr env
 
     // auxiliary functions
     //
-    let ensureTypeExistence type' ctx =
-        ctx
-
-    let appendExprError expr msg ctx =
-        ctx
-        |> cacheExprType expr WildcardType
-        |> appendError msg
 
     //
     //
-    match expr with
-    | LiteralExpr(_, value) ->
-        match value with
-        | BoolConst(_) -> ctx |> cacheExprType expr kBoolType
-        | IntConst(_) -> ctx |> cacheExprType expr kIntType
+    let newContext, exprChecker =
+        match expr with
+        | LiteralExpr(_, value) ->
+            ctx, LiteralExprChecker env value
 
-    | NamedExpr(rg, name) ->
-        match ctx.VariableLookup |> Map.tryFind name with
-        | Some(VariableLookupItem(_, _, t)) -> 
-            ctx 
-            |> cacheExprType expr t
-        | None ->
-            ctx 
-            |> appendExprError expr (invalidVariableReference rg name)
+        | NamedExpr(rg, name) ->
+            ctx, NamedExprChecker env (lookupVariable ctx) rg name
 
-    // 
-    | InvocationExpr(_, f, args) ->
-        let ctxOnArgs = args |> List.scan checkExpr ctx |> List.tail
+        | TypeCheckExpr(_, child, testType) ->
+            let newContext = checkExprAux ctx child
+            let checker = TypeCheckExprChecker env testType
         
-        let currentCtx = ctxOnArgs |> List.last
-        let argTypeList = ctxOnArgs |> List.map (fun tmpCtx -> tmpCtx.LastExprType)
+            newContext, checker
 
-        // TODO: remove duplicate code
-        match f with
-        // call function
-        | NamedExpr(nameRange, funcName) when ctx.VariableLookup |> Map.containsKey funcName |> not ->
-            // TODO: refine overload resolving
-            let functions = 
-                lookupFunction env "" funcName
-                |> List.filter (fun def -> isInvocable env def.Signature argTypeList)
+        | TypeCastExpr(_, child, targetType) ->
+            let newContext = checkExprAux ctx child
+            let checker = TypeCastExprChecker env targetType
+        
+            newContext, checker
 
-            match functions with
-            | [x] ->
-                currentCtx
-                |> cacheExprType expr x.Signature.ReturnType
-            | [] ->
-                currentCtx
-                |> appendExprError expr (invalidFunctionCall nameRange funcName argTypeList)
-            | _ ->
-                currentCtx
-                |> appendExprError expr (invalidFunctionResolve nameRange funcName argTypeList)
+        // 
+        | InvocationExpr(_, callee, args) ->
+            let ctxOnArgs = args |> List.scan checkExprAux ctx |> List.tail
+        
+            let newContext = ctxOnArgs |> List.last
+            let argTypeList = ctxOnArgs |> List.map (fun tmpCtx -> tmpCtx.LastExprType)
 
-        // call expression
-        | _ ->
-            let currentCtx2, fType = withLastExprType <| checkExpr currentCtx f
-            match fType with
-            | FunctionType(signature) when isInvocable env signature argTypeList ->
-                currentCtx2
-                |> cacheExprType expr signature.ReturnType
-            | _ ->
-                currentCtx2
-                |> appendExprError expr (invalidExpressionCall f.Range argTypeList)
+            let checker = InvocationExprChecker env (lookupVariable newContext) callee argTypeList 
 
-    | TypeCheckExpr(_, child, type') ->
-        checkExpr ctx child
-        |> ensureTypeExistence type'
-        |> cacheExprType expr kBoolType
+            newContext, checker
 
-    | TypeCastExpr(_, child, type') ->
-        checkExpr ctx child
-        |> ensureTypeExistence type'
-        |> cacheExprType expr type'
+        | BinaryExpr(rg, op, lhs, rhs) ->
+            let newContext, lhsType, rhsType =
+                let c1, lt = withLastExprType <| checkExprAux ctx lhs
+                let c2, rt = withLastExprType <| checkExprAux c1 rhs
 
-    | BinaryExpr(rg, op, lhs, rhs) ->
-        let newContext, lhsType, rhsType =
-            let c1, lt = withLastExprType <| checkExpr ctx lhs
-            let c2, rt = withLastExprType <| checkExpr c1 rhs
+                c2, lt, rt
 
-            c2, lt, rt
+            let checker = 
+                BinaryExprChecker env (lookupVariable newContext) rg op lhs lhsType rhs rhsType
 
-        match op with
-        | Op_Assign ->
-            if existImplicitConversion env rhsType lhsType then
-                newContext
-                |> cacheExprType expr lhsType
-            else
-                newContext
-                |> appendExprError expr (invalidBinaryOperation rg op lhsType rhsType)
+            newContext, checker
 
-        | Op_Plus | Op_Minus
-        | Op_Asterisk | Op_Slash
-        | Op_Modulus 
-        | Op_BitwiseAnd | Op_BitwiseOr
-        | Op_BitwiseXor ->
-            match lhsType, rhsType with
-            | BinaryWildcard ->
-                newContext 
-                |> cacheExprType expr WildcardType
-            | SystemType(Int), SystemType(Int) ->
-                newContext 
-                |> cacheExprType expr kIntType
-            | SystemType(_), SystemType(_) ->
-                newContext 
-                |> appendExprError expr (invalidBinaryOperation rg op lhsType rhsType)
-            | _ -> 
-                failwith "user type not supported yet"
+    exprChecker expr newContext
 
-        | Op_Equal | Op_NotEqual
-        | Op_Greater | Op_GreaterEq
-        | Op_Less | Op_LessEq ->
-            match lhsType, rhsType with
-            | BinaryWildcard ->
-                newContext 
-                |> cacheExprType expr kBoolType
-            | SystemType(x), SystemType(y) when x=y && x<>Unit ->
-                newContext 
-                |> cacheExprType expr kBoolType
-            | SystemType(_), SystemType(_) ->
-                newContext 
-                |> cacheExprType expr kBoolType
-                |> appendError (invalidBinaryOperation rg op lhsType rhsType)
-            | _ -> 
-                failwith "user type not supported yet"
+and LiteralExprChecker env value =
+    match value with
+    | BoolConst(_) -> registerExprType kBoolType
+    | IntConst(_)  -> registerExprType kIntType
 
-        | Op_Conjunction | Op_Disjunction ->
-            match lhsType, rhsType with
-            | BinaryWildcard
-            | SystemType(Bool), SystemType(Bool) ->
-                newContext 
-                |> cacheExprType expr kBoolType
-            | SystemType(_), SystemType(_) ->
-                newContext 
-                |> cacheExprType expr kBoolType
-                |> appendError (invalidBinaryOperation rg op lhsType rhsType)
-            | _ -> 
-                failwith "user type not supported yet"
+and NamedExprChecker env lookup rg name =
+    match lookup name with
+    | Some(VariableLookupItem(_, _, t)) -> 
+        registerExprType t
+    | None ->
+        appendExprError (invalidVariableReference rg name)
+
+and TypeCheckExprChecker env testType =
+    fun expr ctx ->
+        checkType env ctx testType
+        |> registerExprType kBoolType expr
+
+and TypeCastExprChecker env targetType =
+    // TODO: what if checkType fails?
+    fun expr ctx ->
+        checkType env ctx targetType
+        |> registerExprType targetType.Stub expr
+
+and InvocationExprChecker env varLookup callee argTypeList =
+    match callee with
+    // call named function
+    | NamedExpr(nameRange, funcName) when varLookup funcName |> Option.isNone ->
+        resolveFunctionCall env nameRange "" funcName argTypeList
+
+    // call expression delegate
+    | _ ->
+        fun expr ctx ->
+            let currentCtx, fType = 
+                withLastExprType <| checkExpr env ctx callee
+
+            resolveExpressionCall env callee.Range fType argTypeList expr currentCtx
+
+and BinaryExprChecker env varLookup rg op lhs lhsType rhs rhsType =
+    match op with
+    | Op_Assign ->
+        if not <| isAssignable env varLookup lhs then
+            appendExprError (invalidAssignment lhs.Range)
+        else if not <| existImplicitConversion env rhsType lhsType then
+            appendExprError (invalidBinaryOperation rg op lhsType rhsType)
+        else
+            registerExprType lhsType
+
+    | Op_Plus | Op_Minus
+    | Op_Asterisk | Op_Slash
+    | Op_Modulus 
+    | Op_BitwiseAnd | Op_BitwiseOr
+    | Op_BitwiseXor ->
+        match lhsType, rhsType with
+        | BinaryWildcard ->
+            registerExprType WildcardStub
+
+        | SystemStub(Int), SystemStub(Int) ->
+            registerExprType kIntType
+
+        | SystemStub(_), SystemStub(_) ->
+            appendExprError (invalidBinaryOperation rg op lhsType rhsType)
+
+        | _ -> 
+            failwith "user type not supported yet"
+
+    | Op_Equal | Op_NotEqual
+    | Op_Greater | Op_GreaterEq
+    | Op_Less | Op_LessEq ->
+        match lhsType, rhsType with
+        | BinaryWildcard ->
+            registerExprType kBoolType
+
+        | SystemStub(x), SystemStub(y) when x=y && x<>Unit ->
+            registerExprType kBoolType
+
+        | SystemStub(_), SystemStub(_) ->
+            appendExprError (invalidBinaryOperation rg op lhsType rhsType)
+
+        | _ -> 
+            failwith "user type not supported yet"
+
+    | Op_Conjunction | Op_Disjunction ->
+        match lhsType, rhsType with
+        | BinaryWildcard
+        | SystemStub(Bool), SystemStub(Bool) ->
+            registerExprType kBoolType
+
+        | SystemStub(_), SystemStub(_) ->
+            appendExprError (invalidBinaryOperation rg op lhsType rhsType)
+
+        | _ -> 
+            failwith "user type not supported yet"
 
 let rec checkStmt env ctx stmt =
     
     // shortcuts for ease of recursive invocation
     //
-    let checkExpr = checkExpr env
-    let checkStmt = checkStmt env
+    let checkExprAux = checkExpr env
+    let checkStmtAux = checkStmt env
 
     // auxiliary functions
     //
-    let ensureTypeConversion rg srcType destType ctx =
+    let ensureTypeConversion rg srcType destType =
         if existImplicitConversion env srcType destType then
-            ctx
+            withIdentity
         else
-            ctx |> appendError (invalidImpilicitConversion rg srcType destType)
+            appendError (invalidImpilicitConversion rg srcType destType)
 
     let ensureExprType expr constraintType ctx =
-        let newContext, exprType = withLastExprType <| checkExpr ctx expr
+        let newContext, exprType = withLastExprType <| checkExprAux ctx expr
         
         ensureTypeConversion expr.Range exprType constraintType newContext
 
@@ -201,55 +244,64 @@ let rec checkStmt env ctx stmt =
     //
     match stmt with
     | ExpressionStmt(rg, expr) ->
-        let newContext = checkExpr ctx expr
-        match expr with
-        | BinaryExpr(_, Op_Assign, _, _)
-        | InvocationExpr(_, _, _) ->
-            newContext
-        | _ ->
-            newContext
-            |> appendError (invalidExpressionStmt rg)
+        let checker =
+            match expr with
+            | BinaryExpr(_, Op_Assign, _, _)
+            | InvocationExpr(_, _, _) ->
+                withIdentity
 
-    | VarDeclStmt(rg, mut, name, type', init) ->
-        let newContext, exprType = withLastExprType <| checkExpr ctx init
+            | _ ->
+                appendError (invalidExpressionStmt rg)
+        
+        checker <| checkExprAux ctx expr
 
-        match type' with
-        | Some t ->
-            ensureTypeConversion rg exprType t newContext
-            |> declareVariable name mut t
-        | None -> 
-            newContext 
-            |> declareVariable name mut exprType
+    | VarDeclStmt(rg, mut, name, typeAnnot, init) ->
+        let newContext, exprType = withLastExprType <| checkExprAux ctx init
+        let checker =
+            match lookupVariable newContext name with
+            | Some _ ->
+                appendError (invalidVariableDecl rg name)
+            | None ->
+                match typeAnnot with
+                | Some t ->
+                    ensureTypeConversion rg exprType t.Stub
+                    >> declareVariable name mut t.Stub
+                | None -> 
+                    declareVariable name mut exprType
+
+        checker <| newContext
 
     | ChoiceStmt(_, pred, posiBranch, negaBranch) ->
         let newContext = ensureExprType pred kBoolType ctx
         
         [ Some posiBranch; negaBranch; ]
         |> List.choose id
-        |> List.fold checkStmt newContext
+        |> List.fold checkStmtAux newContext
 
     | WhileStmt(_, pred, body) ->
         ensureExprType pred kBoolType ctx
         |> enterLoopBody
-        |> (fun ctx -> checkStmt ctx body)
+        |> (fun ctx -> checkStmtAux ctx body)
         |> exitLoopBody
 
     | ControlFlowStmt(rg, ctrl) ->
-        if ctx.LoopDepth > 0 then
-            ctx
-        else
-            ctx |> appendError (invalidControlFlow rg ctrl)
+        let checker =
+            match testLoopBody ctx with
+            | true -> withIdentity
+            | false -> appendError (invalidControlFlow rg ctrl)
+
+        checker <| ctx
 
     | ReturnStmt(rg, maybeExpr) ->
         let newContext, exprType =
             match maybeExpr with
-            | Some(expr) -> withLastExprType <| checkExpr ctx expr
+            | Some(expr) -> withLastExprType <| checkExprAux ctx expr
             | None       -> ctx, kUnitType
 
-        ensureTypeConversion rg exprType (ctx.ReturnType) newContext
+        ensureTypeConversion rg exprType (ctx.ReturnType.Stub) newContext
 
     | CompoundStmt(_, children) ->
-        List.fold checkStmt ctx children |> restoreScope ctx
+        List.fold checkStmtAux ctx children |> restoreScope ctx
 
 let checkFunction env func =
     let ctx = checkStmt env (TranslationContext.createContext func) (func.Body)

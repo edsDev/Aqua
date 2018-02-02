@@ -62,6 +62,8 @@
     <Compile Include="Compiler.fs" />
     <Compile Include="ErrorMessage.fs" />
     <Compile Include="TypeChecker.fs" />
+    <Compile Include="CodeGenerator.fs" />
+    <Compile Include="Bytecode.fs" />
     <Compile Include="Program.fs" />
     <None Include="App.config" />
     <Content Include="packages.config" />

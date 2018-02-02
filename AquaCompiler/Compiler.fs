@@ -90,21 +90,34 @@ with
         m.CurrentFunction.Declarator.ReturnType
 
 module TranslationContext =
+
+    // context builder
     let createContext func =
         { CurrentFunction = func
           LoopDepth = 0
           VariableLookup = func.Declarator.ParamList
-                           |> List.map (fun (name, type') -> name, VariableLookupItem(name, Readonly, type'))
+                           |> List.map (fun (name, type') -> name, VariableLookupItem(name, Readonly, type'.Stub))
                            |> Map.ofList
           LastExprType = kUnitType
           ExprTypeCache = Dictionary(HashIdentity.Reference)
           ErrorMessages = [] }
+
+    // context proxy
+    let lookupVariable ctx name =
+        ctx.VariableLookup |> Map.tryFind name
+
+    // context transformer
+    let withIdentity ctx =
+        ctx
 
     let withLastExprType ctx =
         ctx, ctx.LastExprType
 
     let restoreScope oldCtx newCtx =
         { newCtx with VariableLookup = oldCtx.VariableLookup }
+
+    let testLoopBody ctx =
+        ctx.LoopDepth > 0
 
     let enterLoopBody ctx =
         { ctx with LoopDepth = ctx.LoopDepth + 1 }
@@ -116,12 +129,17 @@ module TranslationContext =
         let var = VariableLookupItem(name, mut, type')
         { ctx with VariableLookup = ctx.VariableLookup |> Map.add name var }    
 
-    let cacheExprType expr type' ctx =
+    let registerExprType type' expr ctx =
         ctx.ExprTypeCache.Add(expr, type')
         { ctx with LastExprType = type' }
 
     let appendError msg ctx =
         { ctx with ErrorMessages = msg::ctx.ErrorMessages }
+
+    let appendExprError msg expr ctx =
+        ctx
+        |> registerExprType WildcardStub expr
+        |> appendError msg
 
 //
 // Translation Result

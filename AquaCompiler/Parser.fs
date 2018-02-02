@@ -12,8 +12,32 @@ let keywords =
       "val"; "var"; ]
 
 module ParsecInstance =
+    // [Basic Component] is atomic element in syntax
+    // [Syntax Element] is coumpound element and would pull tailing spaces
 
-    // whitespaces and comments
+
+    // [Basic Component] identifiers
+    //
+
+    let pIdent =
+        let pkeyword = keywords |> List.map skipString |> choice
+        let idOption = IdentifierOptions()
+
+        notFollowedByL pkeyword "keyword" >>. identifier idOption
+
+    // [Basic Component] literals
+    //
+    let pBool = 
+        choice [stringReturn "true" true; stringReturn "false" false] 
+        |>> BoolConst
+
+    let pInt = 
+        pint32 |>> IntConst
+
+    let pLiteral =
+        choice [pInt; pBool]
+
+    // [Basic Component] whitespaces and comments
     //
     let pLineComment = 
         skipString "//" 
@@ -26,30 +50,38 @@ module ParsecInstance =
 
     let pws = [ spaces1; pLineComment; pBlockComment; ] |> choice |> skipMany
 
-    // utils
+    // Utilities
     //
 
-    let skipChar_ws c = skipChar c .>> pws
-    let skipString_ws s = skipString s .>> pws
+    let pullSpace p =
+        p .>> pws
 
-    let charReturn_ws c result = charReturn c result .>> pws
-    let stringReturn_ws s result = stringReturn s result .>> pws
+    let pIdent_ws =
+        pIdent |> pullSpace
 
-    //
+    let pLiteral_ws =
+        pLiteral |> pullSpace
+
+    let skipChar_ws c = skipChar c |> pullSpace
+    let skipString_ws s = skipString s |> pullSpace
+
+    let charReturn_ws c result = charReturn c result |> pullSpace
+    let stringReturn_ws s result = stringReturn s result |> pullSpace
+
+    // (woundn't consume tailing spaces)
     let sepByCharDelimiter =
         fun c p -> sepBy p (skipChar_ws c)
 
     let sepByComma = 
         fun p -> sepByCharDelimiter ',' p
 
-    //
+    // (woundn't consume tailing spaces)
     let betweenCharDelimiter open' close =
-        between (skipChar_ws open') (skipChar_ws close)
+        between (skipChar_ws open') (skipChar close)
 
     let betweenParathe = fun p -> betweenCharDelimiter '(' ')' p
     let betweenBracket = fun p -> betweenCharDelimiter '[' ']' p
     let betweenBrace   = fun p -> betweenCharDelimiter '{' '}' p
-
 
     // assumes opString does not affect line number
     let adjustPosition opString (pos: Position) =
@@ -63,6 +95,14 @@ module ParsecInstance =
           Length        = int <| posEnd.Index - posStart.Index
           StartLine     = int <| posStart.Line
           StartColumn   = int <| posStart.Column }
+
+    let mergeRange first last =
+        assert (first.StartIndex + first.Length <= last.StartIndex)
+
+        { StartIndex    = first.StartIndex 
+          Length        = last.StartIndex - first.StartIndex + last.Length 
+          StartLine     = first.StartLine
+          StartColumn   = first.StartColumn }
 
     let withRange f p =
         pipe3 getPosition p getPosition
@@ -78,58 +118,45 @@ module ParsecInstance =
     let withRange4 ctor p =
         p |> withRange (fun rg (x1, x2, x3, x4) -> ctor (rg, x1, x2, x3, x4))
 
-    // identifiers
-    //
-    let pSimpleIdentifier =
-        let pkeyword = keywords |> List.map skipString |> choice
-        let idOption = IdentifierOptions()
-
-        notFollowedByL pkeyword "keyword" >>. identifier idOption
-
-    let pIdent =
-        pSimpleIdentifier .>> pws
-
-    // literals
-    //
-    let pBool = 
-        choice [stringReturn_ws "true" true; stringReturn_ws "false" false] 
-        |>> BoolConst
-
-    let pInt = 
-        pint32 .>> pws |>> IntConst
-
-    let pLiteral =
-        choice [pInt; pBool]
-
-    // type
+    // [Syntax Element] type
     //
     let pType, pTypeImpl = createParserForwardedToRef()
 
     let pSystemType =
         [ "unit", Unit; "bool", Bool; "int", Int;]
-        |> List.map (fun (text, type') -> stringReturn_ws text (SystemType type'))
+        |> List.map (fun (text, type') -> stringReturn text type')
         |> choice
+        |> withRange1 SystemType
 
     let pCustomType =
-        pIdent |>> UserType
+        pIdent |> withRange1 UserType
     
     let pMaybeFunctionType =
-        let pAtomicType = pSystemType <|> pCustomType
-        let pReturnType = skipString_ws "->" >>. pType
+        let pAtomicType = (pSystemType <|> pCustomType) |> pullSpace
+        let pReturnType = (skipString_ws "->" >>. pType) |> pullSpace
 
-        let makeFunctionType src ret = 
-            FunctionSignature(List.singleton src, ret) |> FunctionType
+        let makeMultiMapFunctionType posStart xs (y: SyntaxType) =
+            let first = makeRange posStart posStart
+            let last = y.Range
+            let rg = mergeRange first last
+
+            FunctionType(rg, xs, y)
+
+        let makeSingleMapFunctionType (x: SyntaxType) (y: SyntaxType) =
+            let rg = mergeRange x.Range y.Range
+
+            FunctionType(rg, List.singleton x, y)
 
         let pWithParamsInParathe =
-            (pType |> sepByComma |> betweenParathe) .>>. (many pReturnType)
+            tuple3 getPosition (pType |> sepByComma |> betweenParathe |> pullSpace) (many pReturnType)
             >>= function
-                | [x], []  -> preturn x
-                | t, x::xs -> preturn (List.fold makeFunctionType (FunctionType <| FunctionSignature(t, x)) xs)
-                | [], []   -> fail "empty type is not allowed"
-                | _, []    -> fail "type list is not allowed"
+                | _, [x], []   -> preturn x
+                | p, xs, y::ys -> preturn (List.fold makeSingleMapFunctionType (makeMultiMapFunctionType p xs y) ys)
+                | _, [], []    -> fail "empty type is not allowed"
+                | _, _, []     -> fail "type list is not allowed"
 
         let pWithParamsExposed =
-            pipe2 pAtomicType (many pReturnType) (List.fold makeFunctionType)
+            pipe2 pAtomicType (many pReturnType) (List.fold makeSingleMapFunctionType)
 
         pWithParamsInParathe <|> pWithParamsExposed
 
@@ -141,25 +168,29 @@ module ParsecInstance =
     let pTypeAnnotOpt =
         opt pTypeAnnot
 
-    // expression
+    // [Syntax Element] expression
     //
     let pLiteralExpr =
-        pLiteral |> withRange1 LiteralExpr
+        pLiteral 
+        |> withRange1 LiteralExpr
+        |> pullSpace
 
     let pNamedExpr =
-        pIdent |> withRange1 NamedExpr
+        pIdent 
+        |> withRange1 NamedExpr
+        |> pullSpace
 
     let pExpr =
         let opp = OperatorPrecedenceParser()
 
         let pAtomicExpr = 
-            choice [ pLiteralExpr; pNamedExpr; betweenParathe opp.ExpressionParser ]
+            choice [ pLiteralExpr; pNamedExpr; opp.ExpressionParser |> betweenParathe |> pullSpace ]
         
         // TODO: add member access suffix
         let pInvocationExpr = 
             let callSuffix = opp.ExpressionParser |> sepByComma |> betweenParathe
 
-            pipe2 pAtomicExpr (many (tuple3 getPosition callSuffix getPosition))
+            pipe2 pAtomicExpr (many (tuple3 getPosition callSuffix getPosition .>> pws))
                   (List.fold (fun expr (posStart, args, posEnd) -> 
                                   let rg = makeRange posStart posEnd
                                   InvocationExpr(rg, expr, args)))
@@ -171,62 +202,74 @@ module ParsecInstance =
 
         let makeTypePostfixOp ctor opString assoc prec =
             let pAfterString =
-                tuple3 getPosition (pws >>. pType |>> Some) getPosition
+                tuple2 (getPosition |> pullSpace) (pType |>> Some)
 
             PostfixOperator(opString, pAfterString, prec, assoc, (),
-                            fun (posStart, type', posEnd) value ->
-                                let rg = makeRange (adjustPosition opString posStart) posEnd
+                            fun (pos, type') value ->
+                                let rg = makeRange (adjustPosition opString pos) pos
                                 ctor (rg, value, Option.get type')) 
-            :> Operator<_, _, _>
+                :> Operator<_, _, _>
 
         // workaround: some expression may need to parse a succeeding type
         let makeBinaryOp opType opString assoc prec =
             let pAfterString =
-                tuple3 getPosition (pws >>. preturn None) getPosition
+                tuple2 (getPosition |> pullSpace) (preturn None)
 
             InfixOperator(opString, pAfterString, prec, assoc, (),
-                          fun (posStart, _, posEnd) lhs rhs -> 
-                              let rg = makeRange (adjustPosition opString posStart) posEnd
+                          fun (pos, _) lhs rhs -> 
+                              let rg = makeRange (adjustPosition opString pos) pos
                               BinaryExpr(rg, opType, lhs, rhs))
-            :> Operator<_, _, _>
+                :> Operator<_, _, _>
 
-        [ // assignment
-          [ makeBinaryOp Op_Assign "=" assocRight ]
-          // disjunction
-          [ makeBinaryOp Op_Disjunction "||" assocLeft ]
-          // conjunction
-          [ makeBinaryOp Op_Conjunction "&&" assocLeft ]
-          // equality
-          [ makeBinaryOp Op_Equal "==" assocLeft
-            makeBinaryOp Op_NotEqual "!=" assocLeft ]
-          // comparison
-          [ makeBinaryOp Op_Greater ">" assocLeft 
-            makeBinaryOp Op_Less "<" assocLeft
-            makeBinaryOp Op_GreaterEq ">=" assocLeft
-            makeBinaryOp Op_LessEq "<=" assocLeft ]
-          // type check
-          [ makeTypePostfixOp TypeCheckExpr "is" false ]
-          // bitwise op
-          [ makeBinaryOp Op_BitwiseAnd "&" assocLeft 
-            makeBinaryOp Op_BitwiseOr "|" assocLeft
-            makeBinaryOp Op_BitwiseXor "^" assocLeft ]
-          // additive
-          [ makeBinaryOp Op_Plus "+" assocLeft
-            makeBinaryOp Op_Minus "-" assocLeft ]
-          // multiplicative
-          [ makeBinaryOp Op_Asterisk "*" assocLeft
-            makeBinaryOp Op_Slash "/" assocLeft
-            makeBinaryOp Op_Modulus "%" assocLeft ]
-          // type cast
-          [ makeTypePostfixOp TypeCastExpr "as" false ]
-        ]
+        let systemOps =
+            [ // assignment
+              [ makeBinaryOp Op_Assign "=" assocRight ]
+
+              // disjunction
+              [ makeBinaryOp Op_Disjunction "||" assocLeft ]
+
+              // conjunction
+              [ makeBinaryOp Op_Conjunction "&&" assocLeft ]
+
+              // equality
+              [ makeBinaryOp Op_Equal "==" assocLeft
+                makeBinaryOp Op_NotEqual "!=" assocLeft ]
+
+              // comparison
+              [ makeBinaryOp Op_Greater ">" assocLeft 
+                makeBinaryOp Op_Less "<" assocLeft
+                makeBinaryOp Op_GreaterEq ">=" assocLeft
+                makeBinaryOp Op_LessEq "<=" assocLeft ]
+
+              // type check
+              [ makeTypePostfixOp TypeCheckExpr "is" false ]
+
+              // bitwise op
+              [ makeBinaryOp Op_BitwiseAnd "&" assocLeft 
+                makeBinaryOp Op_BitwiseOr "|" assocLeft
+                makeBinaryOp Op_BitwiseXor "^" assocLeft ]
+
+              // additive
+              [ makeBinaryOp Op_Plus "+" assocLeft
+                makeBinaryOp Op_Minus "-" assocLeft ]
+
+              // multiplicative
+              [ makeBinaryOp Op_Asterisk "*" assocLeft
+                makeBinaryOp Op_Slash "/" assocLeft
+                makeBinaryOp Op_Modulus "%" assocLeft ]
+
+              // type cast
+              [ makeTypePostfixOp TypeCastExpr "as" false ]
+            ]
+        
+        systemOps
         |> List.mapi (fun i fs -> fs |> List.map (fun f -> f (i+1)))
         |> List.collect id
         |> List.iter (fun op -> opp.AddOperator(op))
 
         opp.ExpressionParser <?> "expression"
 
-    // statement
+    // [Syntax Element] statement
     //
     let pStmt, pStmtImpl = createParserForwardedToRef()
 
@@ -237,7 +280,7 @@ module ParsecInstance =
         let pkeyword = 
             (stringReturn_ws "val" Readonly) <|>
             (stringReturn_ws "var" Mutable)
-        let pname = pIdent
+        let pname = pIdent_ws
         let ptype = pTypeAnnotOpt
         let pinit = skipChar_ws '=' >>. pExpr
     
@@ -246,18 +289,18 @@ module ParsecInstance =
     let pChoiceStmt =
         let pif = skipString_ws "if"
         let pelse = skipString_ws "else"
-        let ptest = betweenParathe pExpr
+        let ptest = pExpr |> betweenParathe |> pullSpace
         let pposi = pStmt
         let pnega = opt (pelse >>. pStmt)
 
-        pif >>. (tuple3 ptest pposi pnega) |> withRange3 ChoiceStmt
+        (pif >>. (tuple3 ptest pposi pnega)) |> withRange3 ChoiceStmt
 
     let pWhileStmt =
         let pwhile = skipString_ws "while"
-        let ptest = betweenParathe pExpr
+        let ptest = pExpr |> betweenParathe |> pullSpace
         let pbody = pStmt
 
-        pwhile >>. (tuple2 ptest pbody) |> withRange2 WhileStmt
+        (pwhile >>. (tuple2 ptest pbody)) |> withRange2 WhileStmt
 
     let pControlFlowStmt =
         choice [stringReturn_ws "break" Break; stringReturn_ws "continue" Continue]
@@ -267,10 +310,13 @@ module ParsecInstance =
         let preturn = skipString_ws "return"
         let pvalue = opt pExpr
 
-        preturn >>. pvalue |> withRange1 ReturnStmt
+        (preturn >>. pvalue) |> withRange1 ReturnStmt
 
     let pCompoundStmt =
-        many pStmt |> betweenBrace |> withRange1 CompoundStmt
+        many pStmt 
+        |> betweenBrace 
+        |> withRange1 CompoundStmt
+        |> pullSpace
 
     do pStmtImpl :=
         choiceL [
@@ -286,8 +332,9 @@ module ParsecInstance =
     // declaration
     //
     let pModuleIdent =
-        sepBy1 pSimpleIdentifier (skipChar '.') .>> pws
+        sepBy1 pIdent (skipChar_ws '.') 
         |>> (List.toArray >> (fun x -> ModuleIdent(x)))
+        |> pullSpace
 
     let pModule =
         skipString_ws "module" >>. pModuleIdent 
@@ -301,12 +348,14 @@ module ParsecInstance =
 
     let pFunc =
         let pfun = skipString_ws "fun"
-        let pname = pIdent
-        let psignature = 
+        let pname = pIdent_ws
+        let pdeclarator = 
             let paramList =
-                pIdent .>>. pTypeAnnot
+                pIdent_ws .>>. pTypeAnnot
                 |> sepByComma
                 |> betweenParathe
+                |> pullSpace
+
             let retType =
                 skipString_ws "->" >>. pType
 
@@ -314,12 +363,12 @@ module ParsecInstance =
 
         let pbody = pCompoundStmt
     
-        pfun >>. (tuple3 pname psignature pbody) 
+        pfun >>. (tuple3 pname pdeclarator pbody) 
         |>> (FunctionDecl >> GD_Function)
         <?> "function declaration"
 
     let pKlass =
-        skipString_ws "class" >>. pIdent 
+        skipString_ws "class" >>. pIdent_ws
         |>> (KlassDecl >> GD_Klass)
         <?> "class declaration"
 

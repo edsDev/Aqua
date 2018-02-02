@@ -13,18 +13,11 @@ type ProjectSession = class end
 // second pass: enumerate and memorize declarations
 // third pass: do type checking
 
-let translateModuleDecl (ModuleDecl(name)) = name
-
-let translateImportDecl (ImportDecl(name)) = name
-
-let translateKlassDecl (KlassDecl(name))= KlassDefinition(name, [], [])
-
-let translateFunctionDecl = function
-    | FunctionDecl(name, FunctionDeclarator(paramDecl, retType), _) -> 
-        let paramTypes = 
-            paramDecl |> List.map snd
-        
-        FunctionDefinition(name, Public, FunctionSignature(paramTypes, retType))
+let translateModuleDecl (decl: ModuleDecl) = decl.Name
+let translateImportDecl (decl: ImportDecl) = decl.Name
+let translateKlassDecl (decl: KlassDecl) = KlassDefinition(decl.Name, [], [])
+let translateFunctionDecl (decl: FunctionDecl) =
+    FunctionDefinition(decl.Name, Public, decl.Signature)
 
 // TODO: add enum support
 let extractModuleInfo syntaxTree =
@@ -42,6 +35,9 @@ let main argv =
         import std
         fun foo(x: int) -> bool {
             break
+            var x = 1;
+            val y = 2;
+            x = y = 42;
 
             if ((x==42) is bool) {
                 return true;
@@ -103,7 +99,7 @@ let main argv =
         |> List.map (fun ctx -> sprintf "in function %s:\n" ctx.FunctionName + mergeError ctx.ErrorMessages)
         |> String.concat "\n\n"
     
-    printfn "%s" xxs
+    printfn "%O" xxs
     Console.ReadKey() |> ignore
 
     0 // return an integer exit code

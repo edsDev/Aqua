@@ -10,7 +10,7 @@ let invalidImpilicitConversion rg srcType destType =
     |> createErrorMessage rg
 
 let invalidControlFlow rg ctrl =
-    sprintf "invalid control flow %O" ctrl
+    sprintf "incorrectly placed control flow %O" ctrl
     |> createErrorMessage rg
 
 let invalidVariableReference rg name =
@@ -33,7 +33,15 @@ let invalidBinaryOperation rg binOp lhsType rhsType =
     sprintf "binary operation %O between %O and %O is undefined" binOp lhsType rhsType
     |> createErrorMessage rg
 
+let invalidAssignment rg =
+    sprintf "expression is not assignable(either declared readonly or a temporary value)"
+    |> createErrorMessage rg
+
 
 let invalidExpressionStmt rg =
     "only assignment or invocation expression can be a statement"
+    |> createErrorMessage rg
+
+let invalidVariableDecl rg name =
+    sprintf "variable %s has already been declared in the scope" name
     |> createErrorMessage rg
