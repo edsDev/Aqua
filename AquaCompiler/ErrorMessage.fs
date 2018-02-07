@@ -5,6 +5,10 @@ open Aqua.Compiler
 let createErrorMessage rg msg =
     { ReferenceRange = rg; Message = msg }
 
+let invalidUserType rg typeName =
+    sprintf "cannot find user type %s" typeName
+    |> createErrorMessage rg
+
 let invalidImpilicitConversion rg srcType destType =
     sprintf "cannot impilicitly convert %O to %O" srcType destType
     |> createErrorMessage rg

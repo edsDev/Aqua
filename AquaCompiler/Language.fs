@@ -3,10 +3,14 @@
 open System
 open System.Collections.Generic
 
+open Aqua.LookupUtils
+
 type BuiltinTypeCategory =
     | Unit
     | Bool
     | Int
+    | Float
+    | Object
 
 type BinaryOp =
     | Op_Assign
@@ -42,20 +46,32 @@ type AccessModifier =
 // type
 //
 type TypeStub =
-    | WildcardStub // a internal placeholder type
+    // primary type defined in aqua language
     | SystemStub of BuiltinTypeCategory
+    // TODO: classify into classes and enums
+    // user-defined type
     | UserStub of string
+    // aggregate function type
     | FunctionStub of FunctionSignature
-with
+
+    member m.IsReferenceType =
+        match m with
+        | SystemStub(Object)
+        | UserStub(_)
+        | FunctionStub(_) ->
+            true
+        | _ -> 
+            false
+
     override m.ToString() =
         match m with
-        | WildcardStub -> "WILDCARD"
-        | SystemStub(t) -> t.ToString()
-        | UserStub(name) -> name
-        | FunctionStub(s) -> s.ToString()
+        | SystemStub(t)     -> t.ToString()
+        | UserStub(name)    -> name
+        | FunctionStub(s)   -> s.ToString()
+
 and FunctionSignature =
     | FunctionSignature of TypeStub list * TypeStub
-with
+
     member m.ParamTypeList =
         match m with | FunctionSignature(params', _) -> params'
     member m.ReturnType =
@@ -68,15 +84,30 @@ with
 let kUnitType = SystemStub Unit
 let kBoolType = SystemStub Bool
 let kIntType = SystemStub Int
+let kFloatType = SystemStub Float
+let kObjectType = SystemStub Object
 
 let makeFunctionStub paramTypes retType =
     FunctionStub <| FunctionSignature(paramTypes, retType)
+
+
+// Literal
+//
+
+type Literal =
+    | BoolConst of bool
+    | IntConst of int
+
+    member m.Type =
+        match m with
+        | BoolConst _ -> kBoolType
+        | IntConst _ -> kIntType
 
 // definitions
 //
 type FunctionDefinition =
     | FunctionDefinition of name:string * access:AccessModifier * signature: FunctionSignature
-with
+    
     member m.Name =
         match m with | FunctionDefinition(x, _, _) -> x
     member m.Access =
@@ -84,21 +115,21 @@ with
     member m.Signature =
         match m with | FunctionDefinition(_, _, x) -> x
 
-type EnumItem =
-    | EnumItem of name:string
-type EnumDefinition =
-    | EnumDefinition of name:string * values:EnumItem list
-with
-    member m.Name =
-        match m with | EnumDefinition(x, _) -> x
-    member m.Values =
-        match m with | EnumDefinition(_, x) -> x
-
-type KlassField =
+type FieldDefinition =
     | KlassField of name:string * access:AccessModifier * type':TypeStub
+
+    member m.Name =
+        match m with | KlassField(x, _, _) -> x
+    member m.Access =
+        match m with | KlassField(_, x, _) -> x
+    member m.Signature =
+        match m with | KlassField(_, _, x) -> x
+
 type KlassDefinition =
-    | KlassDefinition of name:string * fields:KlassField list * methods:FunctionDefinition list
-with
+    | KlassDefinition of name:string *
+                         fields:Lookup<string, FieldDefinition> * 
+                         methods:Lookup<string, FunctionDefinition list>
+
     member m.Name =
         match m with | KlassDefinition(x, _, _) -> x
     member m.Fields =
@@ -106,14 +137,25 @@ with
     member m.Methods =
         match m with | KlassDefinition(_, _, x) -> x
 
+(*
+type EnumItem =
+    | EnumItem of name:string
+type EnumDefinition =
+    | EnumDefinition of name:string * values:EnumItem list
+
+    member m.Name =
+        match m with | EnumDefinition(x, _) -> x
+    member m.Values =
+        match m with | EnumDefinition(_, x) -> x
+*)
+
 // module
 //
 type ModuleIdent =
     | ModuleIdent of IReadOnlyList<string>
-with 
+
     member m.NameList = 
         match m with | ModuleIdent(x) -> x
-
     member m.TerminalName =
         m.NameList.Item (m.NameList.Count-1)
 
@@ -122,6 +164,6 @@ with
 type BasicModuleInfo =
     { ModuleName: ModuleIdent;
       ImportList: ModuleIdent list;
-      EnumList: EnumDefinition list;
+      //EnumList: EnumDefinition list;
       KlassList: KlassDefinition list;
       FunctionList: FunctionDefinition list; }

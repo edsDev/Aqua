@@ -11,6 +11,10 @@ let keywords =
       "fun"; "return"; "unit"; "bool"; "int";
       "val"; "var"; ]
 
+type SynExprSuffix =
+    | MemberAccessSuffix of Range*string
+    | InvocationSuffix of Range*SyntaxExpr list
+
 module ParsecInstance =
     // [Basic Component] is atomic element in syntax
     // [Syntax Element] is coumpound element and would pull tailing spaces
@@ -126,10 +130,10 @@ module ParsecInstance =
         [ "unit", Unit; "bool", Bool; "int", Int;]
         |> List.map (fun (text, type') -> stringReturn text type')
         |> choice
-        |> withRange1 SystemType
+        |> withRange1 Syn_SystemType
 
     let pCustomType =
-        pIdent |> withRange1 UserType
+        pIdent |> withRange1 Syn_UserType
     
     let pMaybeFunctionType =
         let pAtomicType = (pSystemType <|> pCustomType) |> pullSpace
@@ -140,12 +144,12 @@ module ParsecInstance =
             let last = y.Range
             let rg = mergeRange first last
 
-            FunctionType(rg, xs, y)
+            Syn_FunctionType(rg, xs, y)
 
         let makeSingleMapFunctionType (x: SyntaxType) (y: SyntaxType) =
             let rg = mergeRange x.Range y.Range
 
-            FunctionType(rg, List.singleton x, y)
+            Syn_FunctionType(rg, List.singleton x, y)
 
         let pWithParamsInParathe =
             tuple3 getPosition (pType |> sepByComma |> betweenParathe |> pullSpace) (many pReturnType)
@@ -172,12 +176,12 @@ module ParsecInstance =
     //
     let pLiteralExpr =
         pLiteral 
-        |> withRange1 LiteralExpr
+        |> withRange1 Syn_LiteralExpr
         |> pullSpace
 
     let pNamedExpr =
         pIdent 
-        |> withRange1 NamedExpr
+        |> withRange1 Syn_NameAccessExpr
         |> pullSpace
 
     let pExpr =
@@ -186,16 +190,29 @@ module ParsecInstance =
         let pAtomicExpr = 
             choice [ pLiteralExpr; pNamedExpr; opp.ExpressionParser |> betweenParathe |> pullSpace ]
         
-        // TODO: add member access suffix
-        let pInvocationExpr = 
-            let callSuffix = opp.ExpressionParser |> sepByComma |> betweenParathe
+        let pMemberAccessSuffix =
+            let pDot = skipChar_ws '.'
+            let pName = pIdent |> withRange1 MemberAccessSuffix
 
-            pipe2 pAtomicExpr (many (tuple3 getPosition callSuffix getPosition .>> pws))
-                  (List.fold (fun expr (posStart, args, posEnd) -> 
-                                  let rg = makeRange posStart posEnd
-                                  InvocationExpr(rg, expr, args)))
+            pDot >>. pName |> pullSpace
 
-        opp.TermParser <- pInvocationExpr
+        let pInvocationSuffix =
+            opp.ExpressionParser 
+            |> sepByComma 
+            |> betweenParathe
+            |> withRange1 InvocationSuffix
+            |> pullSpace
+
+        let pExprWithSuffix = 
+            let exprSuffix = pMemberAccessSuffix <|> pInvocationSuffix
+
+            pipe2 pAtomicExpr (many exprSuffix)
+                  (List.fold (fun expr suffix -> 
+                                  match suffix with
+                                  | MemberAccessSuffix(rg, name) -> Syn_MemberAccessExpr(rg, expr, name)
+                                  | InvocationSuffix(rg, args) -> Syn_InvocationExpr(rg, expr, args)))
+
+        opp.TermParser <- pExprWithSuffix
 
         let assocLeft = Associativity.Left
         let assocRight = Associativity.Right
@@ -218,7 +235,7 @@ module ParsecInstance =
             InfixOperator(opString, pAfterString, prec, assoc, (),
                           fun (pos, _) lhs rhs -> 
                               let rg = makeRange (adjustPosition opString pos) pos
-                              BinaryExpr(rg, opType, lhs, rhs))
+                              Syn_BinaryExpr(rg, opType, lhs, rhs))
                 :> Operator<_, _, _>
 
         let systemOps =
@@ -242,7 +259,7 @@ module ParsecInstance =
                 makeBinaryOp Op_LessEq "<=" assocLeft ]
 
               // type check
-              [ makeTypePostfixOp TypeCheckExpr "is" false ]
+              [ makeTypePostfixOp Syn_TypeCheckExpr "is" false ]
 
               // bitwise op
               [ makeBinaryOp Op_BitwiseAnd "&" assocLeft 
@@ -259,7 +276,7 @@ module ParsecInstance =
                 makeBinaryOp Op_Modulus "%" assocLeft ]
 
               // type cast
-              [ makeTypePostfixOp TypeCastExpr "as" false ]
+              [ makeTypePostfixOp Syn_TypeCastExpr "as" false ]
             ]
         
         systemOps
@@ -274,7 +291,7 @@ module ParsecInstance =
     let pStmt, pStmtImpl = createParserForwardedToRef()
 
     let pExpressionStmt =
-        pExpr |> withRange1 ExpressionStmt
+        pExpr |> withRange1 Syn_ExpressionStmt
 
     let pVarDeclStmt =
         let pkeyword = 
@@ -284,7 +301,7 @@ module ParsecInstance =
         let ptype = pTypeAnnotOpt
         let pinit = skipChar_ws '=' >>. pExpr
     
-        tuple4 pkeyword pname ptype pinit |> withRange4 VarDeclStmt
+        tuple4 pkeyword pname ptype pinit |> withRange4 Syn_VarDeclStmt
 
     let pChoiceStmt =
         let pif = skipString_ws "if"
@@ -293,29 +310,29 @@ module ParsecInstance =
         let pposi = pStmt
         let pnega = opt (pelse >>. pStmt)
 
-        (pif >>. (tuple3 ptest pposi pnega)) |> withRange3 ChoiceStmt
+        (pif >>. (tuple3 ptest pposi pnega)) |> withRange3 Syn_ChoiceStmt
 
     let pWhileStmt =
         let pwhile = skipString_ws "while"
         let ptest = pExpr |> betweenParathe |> pullSpace
         let pbody = pStmt
 
-        (pwhile >>. (tuple2 ptest pbody)) |> withRange2 WhileStmt
+        (pwhile >>. (tuple2 ptest pbody)) |> withRange2 Syn_WhileStmt
 
     let pControlFlowStmt =
         choice [stringReturn_ws "break" Break; stringReturn_ws "continue" Continue]
-        |> withRange1 ControlFlowStmt
+        |> withRange1 Syn_ControlFlowStmt
 
     let pReturnStmt =
         let preturn = skipString_ws "return"
         let pvalue = opt pExpr
 
-        (preturn >>. pvalue) |> withRange1 ReturnStmt
+        (preturn >>. pvalue) |> withRange1 Syn_ReturnStmt
 
     let pCompoundStmt =
         many pStmt 
         |> betweenBrace 
-        |> withRange1 CompoundStmt
+        |> withRange1 Syn_CompoundStmt
         |> pullSpace
 
     do pStmtImpl :=
@@ -383,7 +400,7 @@ module ParsecInstance =
                        { ModuleInfo = moduleInfo;
                          Imports    = imports;
                          Functions  = decls |> List.choose (function | GD_Function(x) -> Some x | _ -> None);
-                         Klasses    = decls |> List.choose (function | GD_Klass(x) -> Some x | _ -> None) })
+                         Klasses    = decls |> List.choose (function | GD_Klass(x)    -> Some x | _ -> None) })
 
         pws >>. pPageContent .>> eof
 

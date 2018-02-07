@@ -1,6 +1,5 @@
 ﻿module Aqua.Bytecode
 
-[<RequireQualifiedAccess>]
 type Bytecode =
     | LoadArg of int
     | LoadLocal of int
@@ -12,13 +11,13 @@ type Bytecode =
     //| StoreElement
     
     // stack operation
-    | PushBool of bool
     | PushI32 of int32
     | PushI64 of int64
     | PushU32 of uint32
     | PushU64 of uint64
     | PushF32 of single
     | PushF64 of double
+    | PushStr of string
     | Pop
     | Dup
 
@@ -45,6 +44,7 @@ type Bytecode =
     | Ret
     
     // type cast
+    | CastBool
     | CastI8
     | CastI16
     | CastI32
@@ -55,7 +55,7 @@ type Bytecode =
     | CastU64
     | CastF32
     | CastF64
-    //| CastObj
+    | CastObj of string
 
     // object model
     //| NewObj
@@ -65,4 +65,16 @@ type Bytecode =
 
     | Call of string
     //| CallVirtual
+
+type BytecodeAccumulator = ResizeArray<Bytecode>
+
+module BytecodeAccumulator =
+    let createEmpty () =
+        BytecodeAccumulator()
+
+    let appendBytecode (acc: BytecodeAccumulator) code =
+        acc.Add(code)
+
+    let extractPosition (acc: BytecodeAccumulator) =
+        acc.Count
 

@@ -34,12 +34,12 @@ let main argv =
 
         import std
         fun foo(x: int) -> bool {
-            break
             var x = 1;
             val y = 2;
             x = y = 42;
+            break
 
-            if ((x==42) is bool) {
+            if ((x==42) is aha) {
                 return true;
             }
             else {

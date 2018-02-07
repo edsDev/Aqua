@@ -8,71 +8,72 @@ type Range =
     static member Empty =
         { StartIndex = -1; Length = -1; StartLine = -1; StartColumn = -1 }
 
-type Literal =
-    | BoolConst of bool
-    | IntConst of int
-
 type SyntaxType =
-    | SystemType    of Range*BuiltinTypeCategory
-    | UserType      of Range*string
-    | FunctionType  of Range*SyntaxType list*SyntaxType
+    | Syn_SystemType    of Range*BuiltinTypeCategory
+    | Syn_UserType      of Range*string
+    | Syn_FunctionType  of Range*SyntaxType list*SyntaxType
 
     member m.Range =
         match m with 
-        | SystemType(rg, _)         -> rg
-        | UserType(rg, _)           -> rg
-        | FunctionType(rg, _, _)    -> rg
+        | Syn_SystemType(rg, _)         -> rg
+        | Syn_UserType(rg, _)           -> rg
+        | Syn_FunctionType(rg, _, _)    -> rg
 
-    member m.Stub =
-        match m with
-        | SystemType(_, kind)       -> SystemStub(kind)
-        | UserType(_, name)         -> UserStub(name)
-        | FunctionType(_, xs, y)    -> makeFunctionStub (xs |> List.map (fun x -> x.Stub)) y.Stub
-
-type Expression =
-    | LiteralExpr       of Range*Literal
-    | NamedExpr         of Range*string
-    | InvocationExpr    of Range*Expression*Expression list
-    | TypeCheckExpr     of Range*Expression*SyntaxType
-    | TypeCastExpr      of Range*Expression*SyntaxType
-    | BinaryExpr        of Range*BinaryOp*Expression*Expression
+type SyntaxExpr =
+    | Syn_LiteralExpr       of Range*Literal
+    | Syn_NameAccessExpr    of Range*string
+    | Syn_MemberAccessExpr  of Range*SyntaxExpr*string
+    | Syn_InvocationExpr    of Range*SyntaxExpr*SyntaxExpr list
+    | Syn_TypeCheckExpr     of Range*SyntaxExpr*SyntaxType
+    | Syn_TypeCastExpr      of Range*SyntaxExpr*SyntaxType
+    | Syn_BinaryExpr        of Range*BinaryOp*SyntaxExpr*SyntaxExpr
 
     member m.Range =
         match m with
-        | LiteralExpr(rg, _)        -> rg
-        | NamedExpr(rg, _)          -> rg
-        | InvocationExpr(rg, _, _)  -> rg
-        | TypeCheckExpr(rg, _, _)   -> rg
-        | TypeCastExpr(rg, _, _)    -> rg
-        | BinaryExpr(rg, _, _, _)   -> rg
+        | Syn_LiteralExpr(rg, _)            -> rg
+        | Syn_NameAccessExpr(rg, _)         -> rg
+        | Syn_MemberAccessExpr(rg, _, _)    -> rg
+        | Syn_InvocationExpr(rg, _, _)      -> rg
+        | Syn_TypeCheckExpr(rg, _, _)       -> rg
+        | Syn_TypeCastExpr(rg, _, _)        -> rg
+        | Syn_BinaryExpr(rg, _, _, _)       -> rg
 
-type Statement =
-    | ExpressionStmt    of Range*Expression
-    | VarDeclStmt       of Range*MutablityModifier*string*SyntaxType option*Expression
-    | ChoiceStmt        of Range*Expression*Statement*Statement option
-    | WhileStmt         of Range*Expression*Statement
-    | ControlFlowStmt   of Range*ControlFlow
-    | ReturnStmt        of Range*Expression option
-    | CompoundStmt      of Range*Statement list
+type SyntaxStmt =
+    | Syn_ExpressionStmt    of Range*SyntaxExpr
+    | Syn_VarDeclStmt       of Range*MutablityModifier*string*SyntaxType option*SyntaxExpr
+    | Syn_ChoiceStmt        of Range*SyntaxExpr*SyntaxStmt*SyntaxStmt option
+    | Syn_WhileStmt         of Range*SyntaxExpr*SyntaxStmt
+    | Syn_ControlFlowStmt   of Range*ControlFlow
+    | Syn_ReturnStmt        of Range*SyntaxExpr option
+    | Syn_CompoundStmt      of Range*SyntaxStmt list
 
     member m.Range =
         match m with
-        | ExpressionStmt(rg, _)         -> rg
-        | VarDeclStmt(rg, _, _, _, _)   -> rg
-        | ChoiceStmt(rg, _, _, _)       -> rg
-        | WhileStmt(rg, _, _)           -> rg
-        | ControlFlowStmt(rg, _)        -> rg
-        | ReturnStmt(rg, _)             -> rg
-        | CompoundStmt(rg, _)           -> rg
+        | Syn_ExpressionStmt(rg, _)         -> rg
+        | Syn_VarDeclStmt(rg, _, _, _, _)   -> rg
+        | Syn_ChoiceStmt(rg, _, _, _)       -> rg
+        | Syn_WhileStmt(rg, _, _)           -> rg
+        | Syn_ControlFlowStmt(rg, _)        -> rg
+        | Syn_ReturnStmt(rg, _)             -> rg
+        | Syn_CompoundStmt(rg, _)           -> rg
 
 type FunctionDeclarator =
     | FunctionDeclarator of (string*SyntaxType) list*SyntaxType
 
     member m.ParamList =
         match m with | FunctionDeclarator(ps, _) -> ps
-
     member m.ReturnType =
         match m with | FunctionDeclarator(_, ret) -> ret
+
+type FunctionDecl =
+    | FunctionDecl of string*FunctionDeclarator*SyntaxStmt
+
+    member m.Name =
+        match m with | FunctionDecl(x, _, _) -> x
+    member m.Declarator =
+        match m with | FunctionDecl(_, x, _) -> x
+    member m.Body =
+        match m with | FunctionDecl(_, _, x) -> x
 
 type ModuleDecl =
     | ModuleDecl of ModuleIdent
@@ -85,24 +86,6 @@ type ImportDecl =
 
     member m.Name =
         match m with | ImportDecl(name) -> name
-
-type FunctionDecl =
-    | FunctionDecl of string*FunctionDeclarator*Statement
-
-    member m.Name =
-        match m with | FunctionDecl(name, _, _) -> name
-    member m.Declarator =
-        match m with | FunctionDecl(_, d, _) -> d
-    member m.Body =
-        match m with | FunctionDecl(_, _, body) -> body
-
-    member m.Signature =
-        match m with
-        | FunctionDecl(_, FunctionDeclarator(paramList, ret), _) ->
-            let paramTypes = paramList |> List.map (fun (_, x) -> x.Stub)
-            let retType = ret.Stub
-            
-            FunctionSignature(paramTypes, retType)
 
 type KlassDecl =
     | KlassDecl of string
