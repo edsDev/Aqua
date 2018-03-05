@@ -7,9 +7,7 @@ open Aqua.ErrorMessage
 open Aqua.Compiler
 
 let existImplicitConversion ctx srcType destType =
-    match srcType, destType with
-    | SystemStub(t1), SystemStub(t2)    -> t1=t2
-    | _                                 -> false
+    srcType=destType
 
 let isInvocable ctx signature argTypeList =
     let (FunctionSignature(paramTypeList, _)) = signature
@@ -392,18 +390,25 @@ let translateFunction env body =
     | None ->
         Error <| ctx.ErrorMessages
 
-let prepareFunction lookup (decl: FunctionDecl) =
-    let paramTypeList = decl.Declarator.ParamList |> List.map snd
+let prepareFunctionRecord lookupType (decl: FunctionDecl) =
+    let paramNameList = List.map fst decl.Declarator.ParamList
+    let paramTypeList = List.map snd decl.Declarator.ParamList
     let retType = decl.Declarator.ReturnType
 
     retType::paramTypeList
-    |> translateTypeListLite lookup
+    |> translateTypeListLite lookupType
     |> Result.map (fun ts ->
-                       let ps = ts |> List.tail
-                       let r = ts |> List.head
+                       let paramsStub = ts |> List.tail
+                       let returnStub = ts |> List.head
                        
-                       let signature = FunctionSignature(ps, r)
-                       let definition =  FunctionDefinition(decl.Name, decl.Access, signature)
+                       let signature = FunctionSignature(paramsStub, returnStub)
+                       let definition = FunctionDefinition(decl.Name, decl.Access, signature)
+                       let paramRecord = List.map2 (fun x y -> ParameterRecord(x, y)) paramNameList paramsStub
 
-                       FunctionRecord(definition, decl))
+                       FunctionRecord(definition, paramRecord, decl.Body))
 
+let prepareKlassRecord lookupType (decl: KlassDecl) =
+    KlassRecord(KlassDefinition("", null, null), [])
+
+let prepareModuleRecord (session: CompilerSession) (decl: CodePage) =
+    ()

@@ -103,6 +103,11 @@ type KlassDecl =
     member m.Fields =
         match m with | KlassDecl(_, _, _, x) -> x
 
+type ModuleDecl =
+    | ModuleDecl of Range*ModuleIdent
+type ImportDecl =
+    | ImportDecl of Range*ModuleIdent
+
 type CodePage =
     { ModuleName  : ModuleIdent;
       ImportList  : ModuleIdent list;

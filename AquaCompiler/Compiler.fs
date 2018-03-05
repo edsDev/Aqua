@@ -4,6 +4,8 @@ open Aqua.LookupUtils
 open Aqua.Language
 open Aqua.Syntax
 open Aqua.Ast
+open System.IO
+open System.Collections.Generic
 
 type ErrorMessage =
     { ReferenceRange: Range; Message: string; }
@@ -13,9 +15,41 @@ type ErrorMessageList = ErrorMessage list
 //
 // Compiler Session
 //
-type CompilerSession() = class
-    //let mutable private _moduleCache = Dictionary<ModuleIdent, BasicModuleInfo>()
-    end
+let parseModuleInfo s = failwith ""
+
+type CompilerSession(importPathList) =
+    let errorList = ResizeArray<ErrorMessage>()
+    let importCache = Dictionary<ModuleIdent, BasicModuleInfo>()
+    
+    do for path in importPathList do
+        if not <| Directory.Exists(path) then
+            failwith <| sprintf "import path %s does not exist" path
+    
+    member m.HasError =
+        errorList.Count > 0
+
+    member m.LoadModule ident =
+        if importCache.ContainsKey(ident) then
+            Some <| importCache.[ident]
+        else
+            let moduleInfo =
+                importPathList
+                |> List.tryPick (fun dirPath ->
+                                     let filePath = dirPath + ident.Domain + "." + ident.Name + ".am"
+
+                                     if File.Exists(filePath) then
+                                        Some <| File.ReadAllText(filePath)
+                                     else
+                                        None)
+                |> Option.map parseModuleInfo
+
+            if moduleInfo.IsSome then
+                importCache.Add(ident, moduleInfo.Value)
+
+            moduleInfo
+
+    member m.AppendError msgList =
+        errorList.AddRange(msgList)
 
 //
 // Translation Environment
@@ -50,8 +84,6 @@ type VariableLookupItem =
     member m.Type =
         match m with | VariableLookupItem(_, _, type') -> type'
 
-// NOTE as expression type cache always grows
-// mutable collection is used for reference equality
 type TranslationContext =
     { Environment: TranslationEnvironment
 
@@ -216,15 +248,16 @@ let updateContext2 f (x1, x2, ctx) =
 let updateContext3 f (x1, x2, x3, ctx) =
     x1, x2, x3, f ctx
         
+
+type ParameterRecord =
+    | ParameterRecord of string*TypeStub
 type FunctionRecord =
-    | FunctionRecord of FunctionDefinition*FunctionDecl
+    | FunctionRecord of FunctionDefinition*ParameterRecord list*SyntaxStmt
 
-type MethodRecord =
-    | MethodRecord of KlassDefinition*FunctionDefinition*FunctionDecl
 type KlassRecord =
-    | KlassRecord of KlassDefinition*MethodRecord list
+    | KlassRecord of KlassDefinition*FunctionRecord list
 
-type TranslationMaterial =
+type ModuleRecord =
     { ModuleName: ModuleIdent
       ImportList: ModuleIdent list
       FunctionRecords: FunctionRecord list
