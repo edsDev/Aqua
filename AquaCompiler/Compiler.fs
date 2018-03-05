@@ -5,10 +5,10 @@ open Aqua.Language
 open Aqua.Syntax
 open Aqua.Ast
 
-open System.Collections.Generic
+type ErrorMessage =
+    { ReferenceRange: Range; Message: string; }
 
-type ErrorMessageType =
-    { ReferenceRange: Syntax.Range; Message: string; }
+type ErrorMessageList = ErrorMessage list
 
 //
 // Compiler Session
@@ -22,63 +22,26 @@ type CompilerSession() = class
 //
 type TypeLookupItem =
     //| EnumLookupItem of EnumDefinition
-    | KlassLookupItem of KlassDefinition
+    | KlassLookupItem of ModuleIdent*KlassDefinition
 
 type FunctionLookupItem =
     | FunctionLookupItem of ModuleIdent*FunctionDefinition
 
+// <type name> -> <definition>
+type TypeLookupTable = Lookup<string, TypeLookupItem>
+
+// <type name>, <function name> -> <definition list>
+// NOTE type name of global function should be empty
+type FunctionLookupTable = Lookup<string*string, FunctionDefinition list>
+
 type TranslationEnvironment =
-    { // type name -> definition
-      TypeLookupTable: Lookup<string, TypeLookupItem>;
-      // type name, function name -> definition list
-      // NOTE type name of global function should be empty
-      FunctionLookupTable: Lookup<string*string, FunctionDefinition list> }
-
-module TranslationEnvironment =
-
-    // TODO: load imports
-    let createEnvironment thisModule =
-        let enums = []
-        //    thisModule.EnumList
-        //    |> Seq.map (fun def -> def.Name, EnumLookupItem(def))
-        let klasses = 
-            thisModule.KlassList 
-            |> Seq.map (fun def -> def.Name, KlassLookupItem(def))
-
-        let methods = []
-        let functions =
-            thisModule.FunctionList
-            |> Seq.groupBy (fun def -> def.Name)
-            |> Seq.map (fun (name, fs) -> ("", name), List.ofSeq fs) 
-
-        { TypeLookupTable = dict <| Seq.append enums klasses;
-          FunctionLookupTable = dict <| Seq.append methods functions; }
-
-    let lookupType env name =
-        env.TypeLookupTable |> Lookup.tryFind name
-
-    let lookupFunction env funcName =
-        env.FunctionLookupTable |> Lookup.tryFind ("", funcName)
-
-    let lookupMethod env typeName funcName =
-        env.FunctionLookupTable |> Lookup.tryFind (typeName, funcName)
-
-    let lookupCallableName env typeName funcName =
-        match lookupMethod env typeName funcName with
-        | Some x                    -> x
-        | None when typeName<>""    -> lookupFunction env funcName |> Option.defaultValue []
-        | None                      -> []
-
-    let lookupField env typeName fieldName =
-        lookupType env typeName
-        |> Option.bind (function
-                        | KlassLookupItem(def) -> def.Fields |> Lookup.tryFind fieldName )
-//
-// Translation Context
-//
+    { CurrentInstance: KlassDefinition option
+      CurrentFunction: FunctionDefinition
+      TypeLookup: TypeLookupTable
+      FunctionLookup: FunctionLookupTable }
 
 type VariableLookupItem =
-    | VariableLookupItem of string*MutablityModifier*TypeStub
+    | VariableLookupItem of string*MutabilityModifier*TypeStub
 
     member m.Name =
         match m with | VariableLookupItem(name, _, _) -> name
@@ -90,111 +53,179 @@ type VariableLookupItem =
 // NOTE as expression type cache always grows
 // mutable collection is used for reference equality
 type TranslationContext =
-    { CurrentFunction: FunctionDecl
+    { Environment: TranslationEnvironment
+
       LoopDepth: int
       VariableLookup: Map<string, VariableLookupItem>
-      ErrorMessages: ErrorMessageType list }
+      ErrorMessages: ErrorMessageList }
 
-    member m.FunctionName =
-        m.CurrentFunction.Name
-    member m.ParamList =
-        m.CurrentFunction.Declarator.ParamList
-    member m.ReturnType =
-        m.CurrentFunction.Declarator.ReturnType
+let initContext env =
+    let varLookup = Map.empty
 
-module TranslationContext =
+    { Environment = env
+      LoopDepth = 0
+      VariableLookup = varLookup
+      ErrorMessages = [] }
 
-    // context builder
-    let createContext func =
-        { CurrentFunction = func
-          LoopDepth = 0
-          VariableLookup = func.Declarator.ParamList
-                           |> List.map (fun (name, type') -> name, VariableLookupItem(name, Readonly, type'.Stub))
-                           |> Map.ofList
+// context proxy
+//
+let getEnvironment ctx =
+    ctx.Environment
 
-          ErrorMessages = [] }
+let getCurrentInstance ctx =
+    ctx.Environment.CurrentInstance
 
-    // context proxy
-    let lookupVariable ctx name =
-        ctx.VariableLookup |> Map.tryFind name
+let getCurrentFunction ctx =
+    ctx.Environment.CurrentFunction
 
-    // context transformer
-    let withIdentity ctx =
-        ctx
+let lookupType ctx name =
+     ctx.Environment.TypeLookup
+     |> Lookup.tryFind name
 
-    let restoreScope oldCtx newCtx =
-        { newCtx with VariableLookup = oldCtx.VariableLookup }
+let lookupFunction ctx funcName = 
+    ctx.Environment.FunctionLookup
+    |> Lookup.tryFind ("", funcName)
+    |> Option.defaultValue []
 
-    let testLoopBody ctx =
-        ctx.LoopDepth > 0
+let lookupMethod ctx typeName funcName =
+    ctx.Environment.FunctionLookup
+    |> Lookup.tryFind (typeName, funcName)
+    |> Option.defaultValue []
 
-    let enterLoopBody ctx =
-        { ctx with LoopDepth = ctx.LoopDepth + 1 }
+let lookupField ctx typeName fieldName =
+    lookupType ctx typeName
+    |> Option.bind 
+           (function
+            | KlassLookupItem(_, def) -> def.Fields |> Lookup.tryFind fieldName)
 
-    let exitLoopBody ctx =
-        { ctx with LoopDepth = ctx.LoopDepth - 1 }
+let isStaticContext ctx =
+    ctx |> getCurrentInstance |> Option.isNone
 
-    let declareVariable name mut type' ctx =
-        let var = VariableLookupItem(name, mut, type')
-        { ctx with VariableLookup = ctx.VariableLookup |> Map.add name var }    
+let isInstanceContext ctx =
+    ctx |> getCurrentInstance |> Option.isSome
 
-    //let registerExprType type' expr ctx =
-    //    ctx.ExprTypeCache.Add(expr, type')
-    //    { ctx with LastExprType = type' }
+let getInstanceName ctx =
+    ctx
+    |> getCurrentInstance
+    |> Option.map (fun x -> x.Name)
+    |> Option.defaultValue ""
 
-    let appendError msg ctx =
-        { ctx with ErrorMessages = msg::ctx.ErrorMessages }
+let getFunctionName ctx =
+    (getCurrentFunction ctx).Name
 
-    let makeEvalResult result ctx =
-        Some result, ctx
+let getReturnType ctx =
+    (getCurrentFunction ctx).Signature.ReturnType
 
-    let makeEvalErrorEscape ctx =
-        None, ctx
+let lookupVariable ctx name =
+    ctx.VariableLookup 
+    |> Map.tryFind name
 
-    let makeEvalError msg ctx =
-        None, ctx |> appendError msg
+let insideLoopBody ctx =
+    ctx.LoopDepth > 0
+    
+// context transformer
+//
 
-    let bindEvalResult f (x, ctx) =
-        match x with
-        | Some u ->
-            match f u with
-            | Ok y -> makeEvalResult y ctx
-            | Error msg -> makeEvalError msg ctx
-        | None ->
-            makeEvalErrorEscape ctx
+let restoreScope oldCtx newCtx =
+    { newCtx with VariableLookup = oldCtx.VariableLookup }
 
-    let bindEvalResult2 f (x1, x2, ctx) =
-        match x1, x2 with
-        | Some u, Some v ->
-            match f u v with
-            | Ok y -> makeEvalResult y ctx
-            | Error msg -> makeEvalError msg ctx
-        | _ ->
-            makeEvalErrorEscape ctx
+let enterLoopBody ctx =
+    { ctx with LoopDepth = ctx.LoopDepth + 1 }
 
-    let bindEvalResult3 f (x1, x2, x3, ctx) =
-        match x1, x2, x3 with
-        | Some u, Some v, Some w ->
-            match f u v w with
-            | Ok y -> makeEvalResult y ctx
-            | Error msg -> makeEvalError msg ctx
-        | _ ->
-            makeEvalErrorEscape ctx
+let exitLoopBody ctx =
+    { ctx with LoopDepth = ctx.LoopDepth - 1 }
 
-    let bindEvalResultList f (xs, ctx) =
-        if xs |> List.forall Option.isSome then
-            match f (xs |> List.map Option.get) with
-            | Ok y -> makeEvalResult y ctx
-            | Error msg -> makeEvalError msg ctx
-        else
-            makeEvalErrorEscape ctx
+let declareVariable name mut type' ctx =
+    let var = VariableLookupItem(name, mut, type')
+    { ctx with VariableLookup = ctx.VariableLookup |> Map.add name var }
 
-    let updateContext f (x, ctx) =
-        x, f ctx
+let appendError msg ctx =
+    { ctx with ErrorMessages = msg::ctx.ErrorMessages }
 
-    let updateContext2 f (x1, x2, ctx) =
-        x1, x2, f ctx
+//
+//
 
-    let updateContext3 f (x1, x2, x3, ctx) =
-        x1, x2, x3, f ctx
+let makeEvalResult result ctx =
+    Some result, ctx
+
+let makeEvalError msg ctx =
+    None, ctx |> appendError msg
+
+let escapeEvalError ctx =
+    None, ctx
+
+let bindEvalResult f (x, ctx) =
+    match x with
+    | Some u ->
+        f ctx u
+    | None ->
+        escapeEvalError ctx
+
+let bindEvalResult2 f (x1, x2, ctx) =
+    match x1, x2 with
+    | Some u, Some v ->
+        f ctx u v
+    | _ ->
+        escapeEvalError ctx
+
+let bindEvalResult3 f (x1, x2, x3, ctx) =
+    match x1, x2, x3 with
+    | Some u, Some v, Some w ->
+        f ctx u v w
+    | _ ->
+        escapeEvalError ctx
+
+let processReturn result ctx =
+    match result with
+    | Ok y      -> makeEvalResult y ctx
+    | Error msg -> makeEvalError msg ctx
+
+let processEvalResult f (x, ctx) =
+    match x with
+    | Some u ->
+        processReturn (f u) ctx
+    | None ->
+        escapeEvalError ctx
+
+let processEvalResult2 f (x1, x2, ctx) =
+    match x1, x2 with
+    | Some u, Some v ->
+        processReturn (f u v) ctx
+    | _ ->
+        escapeEvalError ctx
+
+let processEvalResult3 f (x1, x2, x3, ctx) =
+    match x1, x2, x3 with
+    | Some u, Some v, Some w ->
+        processReturn (f u v w) ctx
+    | _ ->
+        escapeEvalError ctx
+
+let processEvalResultList f (xs, ctx) =
+    if xs |> List.forall Option.isSome then
+        processReturn (f (xs |> List.map Option.get)) ctx
+    else
+        escapeEvalError ctx
+
+let updateContext f (x, ctx) =
+    x, f ctx
+
+let updateContext2 f (x1, x2, ctx) =
+    x1, x2, f ctx
+
+let updateContext3 f (x1, x2, x3, ctx) =
+    x1, x2, x3, f ctx
         
+type FunctionRecord =
+    | FunctionRecord of FunctionDefinition*FunctionDecl
+
+type MethodRecord =
+    | MethodRecord of KlassDefinition*FunctionDefinition*FunctionDecl
+type KlassRecord =
+    | KlassRecord of KlassDefinition*MethodRecord list
+
+type TranslationMaterial =
+    { ModuleName: ModuleIdent
+      ImportList: ModuleIdent list
+      FunctionRecords: FunctionRecord list
+      KlassRecords: KlassRecord list }

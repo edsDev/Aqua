@@ -9,20 +9,48 @@ let kLongestCommentLength = 10000
 let keywords =
     [ "true"; "false"; "if"; "else"; "while"; 
       "fun"; "return"; "unit"; "bool"; "int";
-      "val"; "var"; ]
+      "val"; "var"; "this"; ]
 
 type SynExprSuffix =
     | MemberAccessSuffix of Range*string
     | InvocationSuffix of Range*SyntaxExpr list
 
+[<RequireQualifiedAccess>]
+type FieldOrMethod =
+    | Field of FieldDecl
+    | Method of FunctionDecl
+
+    member m.MaybeField = 
+        match m with
+        | Field(x) -> Some x
+        | Method(_) -> None
+    member m.MaybeMethod =
+        match m with
+        | Field(_) -> None
+        | Method(x) -> Some x
+
+[<RequireQualifiedAccess>]
+type FunctionOrKlass =
+    | Function of FunctionDecl
+    | Klass of KlassDecl
+
+    member m.MaybesFunction = 
+        match m with
+        | Function(x) -> Some x
+        | Klass(_) -> None
+    member m.MaybeKlass =
+        match m with
+        | Function(_) -> None
+        | Klass(x) -> Some x
+
 module ParsecInstance =
+
     // [Basic Component] is atomic element in syntax
     // [Syntax Element] is coumpound element and would pull tailing spaces
 
 
     // [Basic Component] identifiers
     //
-
     let pIdent =
         let pkeyword = keywords |> List.map skipString |> choice
         let idOption = IdentifierOptions()
@@ -40,6 +68,16 @@ module ParsecInstance =
 
     let pLiteral =
         choice [pInt; pBool]
+
+    // [Basic Component] modifiers
+    //
+    let pAccess =
+        (stringReturn "public" Public) <|>
+        (stringReturn "private" Private)
+
+    let pMutability =
+        (stringReturn "val" Readonly) <|>
+        (stringReturn "var" Mutable)
 
     // [Basic Component] whitespaces and comments
     //
@@ -65,6 +103,12 @@ module ParsecInstance =
 
     let pLiteral_ws =
         pLiteral |> pullSpace
+
+    let pAccess_ws =
+        pAccess |> pullSpace
+
+    let pMutability_ws =
+        pMutability |> pullSpace
 
     let skipChar_ws c = skipChar c |> pullSpace
     let skipString_ws s = skipString s |> pullSpace
@@ -294,9 +338,7 @@ module ParsecInstance =
         pExpr |> withRange1 Syn_ExpressionStmt
 
     let pVarDeclStmt =
-        let pkeyword = 
-            (stringReturn_ws "val" Readonly) <|>
-            (stringReturn_ws "var" Mutable)
+        let pkeyword = pMutability_ws
         let pname = pIdent_ws
         let ptype = pTypeAnnotOpt
         let pinit = skipChar_ws '=' >>. pExpr
@@ -350,21 +392,20 @@ module ParsecInstance =
     //
     let pModuleIdent =
         sepBy1 pIdent (skipChar_ws '.') 
-        |>> (List.toArray >> (fun x -> ModuleIdent(x)))
+        |>> ModuleIdent.ofList
         |> pullSpace
 
     let pModule =
         skipString_ws "module" >>. pModuleIdent 
-        |>> ModuleDecl
         <?> "module declaration"
 
     let pImport =
         skipString_ws "import" >>. pModuleIdent 
-        |>> ImportDecl
         <?> "import declaration"
 
-    let pFunc =
+    let pFunctionAux =
         let pfun = skipString_ws "fun"
+        let paccess = pAccess_ws <|>% Public
         let pname = pIdent_ws
         let pdeclarator = 
             let paramList =
@@ -380,13 +421,41 @@ module ParsecInstance =
 
         let pbody = pCompoundStmt
     
-        pfun >>. (tuple3 pname pdeclarator pbody) 
-        |>> (FunctionDecl >> GD_Function)
+        pipe4 (paccess .>> pfun) pname pdeclarator pbody
+              (fun access name decl body -> FunctionDecl(name, access, decl, body))
+
+    let pFunction =
+        pFunctionAux
+        |>> FunctionOrKlass.Function
         <?> "function declaration"
 
     let pKlass =
-        skipString_ws "class" >>. pIdent_ws
-        |>> (KlassDecl >> GD_Klass)
+        let pkeyword = skipString_ws "class"
+        let paccess = pAccess_ws <|>% Public
+
+        let pFieldDecl = 
+            pipe4 paccess pMutability_ws pIdent_ws pTypeAnnot
+                  (fun access mut name type' -> FieldDecl(name, access, mut, type'))
+            |>> FieldOrMethod.Field
+            <?> "field declaration"
+        
+        let pMethodDecl =
+            pFunctionAux 
+            |>> FieldOrMethod.Method
+            <?> "method declaration"
+        
+        let pKlassBody =
+            many (attempt pFieldDecl <|> attempt pMethodDecl)
+            |> betweenBrace
+            |> pullSpace
+
+        pipe3 (paccess .>> pkeyword) pIdent_ws pKlassBody
+              (fun access name body ->
+                   let methods = body |> List.choose (fun x -> x.MaybeMethod)
+                   let fields = body |> List.choose (fun x -> x.MaybeField)
+
+                   KlassDecl(name, access, methods, fields))
+        |>> FunctionOrKlass.Klass
         <?> "class declaration"
 
     // code page
@@ -395,12 +464,12 @@ module ParsecInstance =
     // explicitly annotate the type to avoid generic value
     let (pCodePage: Parser<_, unit>) =
         let pPageContent =
-            pipe3 (pModule) (many pImport) ([pFunc; pKlass] |> choice |> many)
-                  (fun moduleInfo imports decls ->
-                       { ModuleInfo = moduleInfo;
-                         Imports    = imports;
-                         Functions  = decls |> List.choose (function | GD_Function(x) -> Some x | _ -> None);
-                         Klasses    = decls |> List.choose (function | GD_Klass(x)    -> Some x | _ -> None) })
+            pipe3 (pModule) (many pImport) ([attempt pFunction; attempt pKlass] |> choice |> many)
+                  (fun moduleName imports decls ->
+                       { ModuleName = moduleName
+                         ImportList = imports
+                         Functions  = decls |> List.choose (fun x -> x.MaybesFunction)
+                         Klasses    = decls |> List.choose (fun x -> x.MaybeKlass) })
 
         pws >>. pPageContent .>> eof
 

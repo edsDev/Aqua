@@ -5,8 +5,7 @@ open Aqua.Ast
 open Aqua.Compiler
 open Aqua.Bytecode
 
-open Aqua.Compiler.TranslationReference
-
+(*
 let rec translateExpr env re codeAcc expr =
     let emitBytecode = BytecodeAccumulator.appendBytecode codeAcc
     let emitExpr = translateExpr env re codeAcc
@@ -49,3 +48,4 @@ let rec translateExpr env re codeAcc expr =
     | Ast_InvocationExpr(callee, args) ->
         args |> List.iter (fun x -> emitExpr <| x)
 
+*)

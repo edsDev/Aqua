@@ -17,20 +17,28 @@ let invalidControlFlow rg ctrl =
     sprintf "incorrectly placed control flow %O" ctrl
     |> createErrorMessage rg
 
-let invalidVariableReference rg name =
-    sprintf "variable %O cannot be found" name
+let invalidInstanceReference rg =
+    sprintf "this cannot be referred in static functions"
     |> createErrorMessage rg
+
+let invalidVariableReference rg name =
+    sprintf "variable %s cannot be found" name
+    |> createErrorMessage rg
+
+let invalidFieldReference rg typeName fieldName =
+    sprintf "type %s not has member %s" typeName fieldName
+    |> createErrorMessage rg   
 
 let invalidExpressionCall rg argTypeList =
     sprintf "expression cannot be called with %O" argTypeList
     |> createErrorMessage rg
 
 let invalidFunctionCall rg name argTypeList =
-    sprintf "function %O that takes %O cannot be found" name argTypeList
+    sprintf "function %s that takes %O cannot be found" name argTypeList
     |> createErrorMessage rg
 
 let invalidFunctionResolve rg name argTypeList =
-    sprintf "function %O that takes %O cannot be resolved" name argTypeList
+    sprintf "function %s that takes %O cannot be resolved" name argTypeList
     |> createErrorMessage rg
 
 let invalidBinaryOperation rg binOp lhsType rhsType =

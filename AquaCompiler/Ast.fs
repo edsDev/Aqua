@@ -2,9 +2,13 @@
 
 open Aqua.Language
 
+// AstExpr
+//
+
 type AstExpr =
+    | Ast_InstanceExpr      of TypeStub
     | Ast_LiteralExpr       of Literal
-    | Ast_NameAccessExpr         of TypeStub*MutablityModifier*VariableReference
+    | Ast_NameAccessExpr    of TypeStub*MutabilityModifier*VariableReference
     | Ast_MemberAccessExpr  of TypeStub*AstExpr*string
     | Ast_TypeCheckExpr     of AstExpr*TypeStub
     | Ast_TypeCastExpr      of AstExpr*TypeStub
@@ -20,24 +24,27 @@ and CallableReference =
     | CallableMethod of string*FunctionDefinition
     | CallableExpression of AstExpr*FunctionSignature
 
-module AstExpr =
-    let rec getTypeStub expr =
-        match expr with
-        | Ast_LiteralExpr(literal)          -> literal.Type
-        | Ast_NameAccessExpr(t, _, _)       -> t
-        | Ast_MemberAccessExpr(t, _, _)     -> t
-        | Ast_TypeCheckExpr(_, t)           -> t
-        | Ast_TypeCastExpr(_, t)            -> t
-        | Ast_InvocationExpr(callable, _)   ->
-            match callable with
-            | CallableFunction(d)       -> d.Signature.ReturnType
-            | CallableMethod(_, d)      -> d.Signature.ReturnType
-            | CallableExpression(_, s)  -> s.ReturnType
-        | Ast_BinaryExpr(t, _, _, _)        -> t
+let rec getAstExprType expr =
+    match expr with
+    | Ast_InstanceExpr(t)               -> t
+    | Ast_LiteralExpr(literal)          -> literal.Type
+    | Ast_NameAccessExpr(t, _, _)       -> t
+    | Ast_MemberAccessExpr(t, _, _)     -> t
+    | Ast_TypeCheckExpr(_, t)           -> t
+    | Ast_TypeCastExpr(_, t)            -> t
+    | Ast_InvocationExpr(callable, _)   ->
+        match callable with
+        | CallableFunction(d)       -> d.Signature.ReturnType
+        | CallableMethod(_, d)      -> d.Signature.ReturnType
+        | CallableExpression(_, s)  -> s.ReturnType
+    | Ast_BinaryExpr(t, _, _, _)        -> t
+
+// AstStmt
+//
 
 type AstStmt =
     | Ast_ExpressionStmt    of AstExpr
-    | Ast_VarDeclStmt       of MutablityModifier*string*TypeStub*AstExpr
+    | Ast_VarDeclStmt       of MutabilityModifier*string*TypeStub*AstExpr
     | Ast_ChoiceStmt        of AstExpr*AstStmt*AstStmt option
     | Ast_WhileStmt         of AstExpr*AstStmt
     | Ast_ControlFlowStmt   of ControlFlow

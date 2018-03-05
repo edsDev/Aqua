@@ -37,7 +37,7 @@ type BinaryOp =
 type ControlFlow = 
     | Break | Continue
 
-type MutablityModifier = 
+type MutabilityModifier = 
     | Mutable | Readonly
 
 type AccessModifier =
@@ -63,12 +63,6 @@ type TypeStub =
         | _ -> 
             false
 
-    override m.ToString() =
-        match m with
-        | SystemStub(t)     -> t.ToString()
-        | UserStub(name)    -> name
-        | FunctionStub(s)   -> s.ToString()
-
 and FunctionSignature =
     | FunctionSignature of TypeStub list * TypeStub
 
@@ -81,6 +75,7 @@ and FunctionSignature =
         sprintf "(%s) -> %A" (String.Join(",", m.ParamTypeList)) (m.ReturnType)
 
 // shortcuts for TypeStub construction
+//
 let kUnitType = SystemStub Unit
 let kBoolType = SystemStub Bool
 let kIntType = SystemStub Int
@@ -89,6 +84,12 @@ let kObjectType = SystemStub Object
 
 let makeFunctionStub paramTypes retType =
     FunctionStub <| FunctionSignature(paramTypes, retType)
+
+let getTypeName stub =
+    match stub with
+    | SystemStub(t)     -> t.ToString()
+    | UserStub(name)    -> name
+    | FunctionStub(s)   -> s.ToString()
 
 
 // Literal
@@ -103,10 +104,12 @@ type Literal =
         | BoolConst _ -> kBoolType
         | IntConst _ -> kIntType
 
-// definitions
+// Definitions
 //
 type FunctionDefinition =
-    | FunctionDefinition of name:string * access:AccessModifier * signature: FunctionSignature
+    | FunctionDefinition of name:string * 
+                            access:AccessModifier * 
+                            signature: FunctionSignature
     
     member m.Name =
         match m with | FunctionDefinition(x, _, _) -> x
@@ -116,14 +119,16 @@ type FunctionDefinition =
         match m with | FunctionDefinition(_, _, x) -> x
 
 type FieldDefinition =
-    | KlassField of name:string * access:AccessModifier * type':TypeStub
+    | FieldDefinition of name:string * 
+                         access:AccessModifier * 
+                         type':TypeStub
 
     member m.Name =
-        match m with | KlassField(x, _, _) -> x
+        match m with | FieldDefinition(x, _, _) -> x
     member m.Access =
-        match m with | KlassField(_, x, _) -> x
-    member m.Signature =
-        match m with | KlassField(_, _, x) -> x
+        match m with | FieldDefinition(_, x, _) -> x
+    member m.Type =
+        match m with | FieldDefinition(_, _, x) -> x
 
 type KlassDefinition =
     | KlassDefinition of name:string *
@@ -152,14 +157,23 @@ type EnumDefinition =
 // module
 //
 type ModuleIdent =
-    | ModuleIdent of IReadOnlyList<string>
+    // domain should be empty or period-separated identifiers
+    // name should be a valid identifier
+    | ModuleIdent of domain:string*name:string
 
-    member m.NameList = 
-        match m with | ModuleIdent(x) -> x
-    member m.TerminalName =
-        m.NameList.Item (m.NameList.Count-1)
+    static member ofList l =
+        let a = List.toArray l
+        let domain = String.Join(".", Seq.take (a.Length-1) a)
+        let name = Array.last a
 
-    override m.ToString() = String.Join(".", m.NameList)
+        ModuleIdent(domain, name)
+
+    member m.Domain =
+        match m with | ModuleIdent(x, _) -> x
+    member m.Name =
+        match m with | ModuleIdent(_, x) -> x
+
+    override m.ToString() = m.Domain + "." + m.Name
 
 type BasicModuleInfo =
     { ModuleName: ModuleIdent;

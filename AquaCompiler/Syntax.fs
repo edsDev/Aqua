@@ -20,6 +20,7 @@ type SyntaxType =
         | Syn_FunctionType(rg, _, _)    -> rg
 
 type SyntaxExpr =
+    | Syn_InstanceExpr      of Range
     | Syn_LiteralExpr       of Range*Literal
     | Syn_NameAccessExpr    of Range*string
     | Syn_MemberAccessExpr  of Range*SyntaxExpr*string
@@ -30,6 +31,7 @@ type SyntaxExpr =
 
     member m.Range =
         match m with
+        | Syn_InstanceExpr(rg)              -> rg
         | Syn_LiteralExpr(rg, _)            -> rg
         | Syn_NameAccessExpr(rg, _)         -> rg
         | Syn_MemberAccessExpr(rg, _, _)    -> rg
@@ -40,7 +42,7 @@ type SyntaxExpr =
 
 type SyntaxStmt =
     | Syn_ExpressionStmt    of Range*SyntaxExpr
-    | Syn_VarDeclStmt       of Range*MutablityModifier*string*SyntaxType option*SyntaxExpr
+    | Syn_VarDeclStmt       of Range*MutabilityModifier*string*SyntaxType option*SyntaxExpr
     | Syn_ChoiceStmt        of Range*SyntaxExpr*SyntaxStmt*SyntaxStmt option
     | Syn_WhileStmt         of Range*SyntaxExpr*SyntaxStmt
     | Syn_ControlFlowStmt   of Range*ControlFlow
@@ -66,39 +68,43 @@ type FunctionDeclarator =
         match m with | FunctionDeclarator(_, ret) -> ret
 
 type FunctionDecl =
-    | FunctionDecl of string*FunctionDeclarator*SyntaxStmt
+    | FunctionDecl of string*AccessModifier*FunctionDeclarator*SyntaxStmt
 
     member m.Name =
-        match m with | FunctionDecl(x, _, _) -> x
+        match m with | FunctionDecl(x, _, _, _) -> x
+    member m.Access =
+        match m with | FunctionDecl(_, x, _, _) -> x
     member m.Declarator =
-        match m with | FunctionDecl(_, x, _) -> x
+        match m with | FunctionDecl(_, _, x, _) -> x
     member m.Body =
-        match m with | FunctionDecl(_, _, x) -> x
+        match m with | FunctionDecl(_, _, _, x) -> x
 
-type ModuleDecl =
-    | ModuleDecl of ModuleIdent
-
-    member m.Name =
-        match m with | ModuleDecl(name) -> name
-
-type ImportDecl =
-    | ImportDecl of ModuleIdent
+type FieldDecl =
+    | FieldDecl of string*AccessModifier*MutabilityModifier*SyntaxType
 
     member m.Name =
-        match m with | ImportDecl(name) -> name
+        match m with | FieldDecl(x, _, _, _) -> x
+    member m.Access =
+        match m with | FieldDecl(_, x, _, _) -> x
+    member m.Mutability =
+        match m with | FieldDecl(_, _, x, _) -> x
+    member m.Body =
+        match m with | FieldDecl(_, _, _, x) -> x
 
 type KlassDecl =
-    | KlassDecl of string
+    | KlassDecl of string*AccessModifier*FunctionDecl list*FieldDecl list
 
     member m.Name =
-        match m with | KlassDecl(name) -> name
+        match m with | KlassDecl(x, _, _, _) -> x
+    member m.Access =
+        match m with | KlassDecl(_, x, _, _) -> x
+    member m.Methods =
+        match m with | KlassDecl(_, _, x, _) -> x
+    member m.Fields =
+        match m with | KlassDecl(_, _, _, x) -> x
 
 type CodePage =
-    { ModuleInfo  : ModuleDecl;
-      Imports     : ImportDecl list;
+    { ModuleName  : ModuleIdent;
+      ImportList  : ModuleIdent list;
       Functions   : FunctionDecl list;
       Klasses     : KlassDecl list }
-
-type GlobalDeclaration =
-    | GD_Function of FunctionDecl
-    | GD_Klass of KlassDecl
