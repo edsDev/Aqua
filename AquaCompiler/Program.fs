@@ -3,6 +3,7 @@ open Aqua.Language
 open Aqua.Syntax
 open Aqua.Parser
 open Aqua.Compiler
+open Aqua.Preprocessor
 open Aqua
 
 // 
@@ -18,30 +19,32 @@ let main argv =
     let sampleCode = """
         module mycode
 
-        import std
-        fun foo(x: int) -> bool {
-            var x = 1;
-            val y = 2;
-            x = y = 42;
-            break
+        //import std
+        class Program {
+            public static fun foo(x: int) -> bool {
+                var x = 1;
+                val y = 2;
+                x = y = 42;
+                break
 
-            if ((x==42) is aha) {
-                return true;
+                if ((x==42) is aha) {
+                    return true;
+                }
+                else {
+                    return false;
+                }
+
+                return 42
             }
-            else {
-                return false;
+
+            // line comment
+            public static fun sum(x: int, y: int) -> bool {
+                return x + /* block comment */ y;
             }
 
-            return 42
-        }
-
-        // line comment
-        fun sum(x: int, y: int) -> bool {
-            return x + /* block comment */ y;
-        }
-
-        fun apply(f: (int, int) -> int, x: int, y: int) -> int {
-            return f(x, y) + sum(x, y) + g(x, y) + z;
+            public static fun apply(f: (int, int) -> int, x: int, y: int) -> int {
+                return f(x, y) + sum(x, y) + g(x, y) + z;
+            }
         }
 
         /*
@@ -68,6 +71,10 @@ let main argv =
         | Success t -> t
         | Failure e -> printfn "%s" e; failwith e
     
+    let session =
+        let loader = ModuleLoader([])
+        preprocessModule loader codePage
+
     printfn "%O" codePage
     Console.ReadKey() |> ignore
 

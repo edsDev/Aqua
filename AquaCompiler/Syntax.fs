@@ -2,16 +2,16 @@
 
 open Aqua.Language
 
-type Range =
+type SynRange =
     { StartIndex: int; Length: int; StartLine: int; StartColumn: int }
 
     static member Empty =
         { StartIndex = -1; Length = -1; StartLine = -1; StartColumn = -1 }
 
 type SyntaxType =
-    | Syn_SystemType    of Range*BuiltinTypeCategory
-    | Syn_UserType      of Range*string
-    | Syn_FunctionType  of Range*SyntaxType list*SyntaxType
+    | Syn_SystemType    of SynRange*BuiltinTypeCategory
+    | Syn_UserType      of SynRange*string
+    | Syn_FunctionType  of SynRange*SyntaxType list*SyntaxType
 
     member m.Range =
         match m with 
@@ -20,14 +20,14 @@ type SyntaxType =
         | Syn_FunctionType(rg, _, _)    -> rg
 
 type SyntaxExpr =
-    | Syn_InstanceExpr      of Range
-    | Syn_LiteralExpr       of Range*Literal
-    | Syn_NameAccessExpr    of Range*string
-    | Syn_MemberAccessExpr  of Range*SyntaxExpr*string
-    | Syn_InvocationExpr    of Range*SyntaxExpr*SyntaxExpr list
-    | Syn_TypeCheckExpr     of Range*SyntaxExpr*SyntaxType
-    | Syn_TypeCastExpr      of Range*SyntaxExpr*SyntaxType
-    | Syn_BinaryExpr        of Range*BinaryOp*SyntaxExpr*SyntaxExpr
+    | Syn_InstanceExpr      of SynRange
+    | Syn_LiteralExpr       of SynRange*Literal
+    | Syn_NameAccessExpr    of SynRange*string
+    | Syn_MemberAccessExpr  of SynRange*SyntaxExpr*string
+    | Syn_InvocationExpr    of SynRange*SyntaxExpr*SyntaxExpr list
+    | Syn_TypeCheckExpr     of SynRange*SyntaxExpr*SyntaxType
+    | Syn_TypeCastExpr      of SynRange*SyntaxExpr*SyntaxType
+    | Syn_BinaryExpr        of SynRange*BinaryOp*SyntaxExpr*SyntaxExpr
 
     member m.Range =
         match m with
@@ -41,13 +41,13 @@ type SyntaxExpr =
         | Syn_BinaryExpr(rg, _, _, _)       -> rg
 
 type SyntaxStmt =
-    | Syn_ExpressionStmt    of Range*SyntaxExpr
-    | Syn_VarDeclStmt       of Range*MutabilityModifier*string*SyntaxType option*SyntaxExpr
-    | Syn_ChoiceStmt        of Range*SyntaxExpr*SyntaxStmt*SyntaxStmt option
-    | Syn_WhileStmt         of Range*SyntaxExpr*SyntaxStmt
-    | Syn_ControlFlowStmt   of Range*ControlFlow
-    | Syn_ReturnStmt        of Range*SyntaxExpr option
-    | Syn_CompoundStmt      of Range*SyntaxStmt list
+    | Syn_ExpressionStmt    of SynRange*SyntaxExpr
+    | Syn_VarDeclStmt       of SynRange*MutabilitySpec*string*SyntaxType option*SyntaxExpr
+    | Syn_ChoiceStmt        of SynRange*SyntaxExpr*SyntaxStmt*SyntaxStmt option
+    | Syn_WhileStmt         of SynRange*SyntaxExpr*SyntaxStmt
+    | Syn_ControlFlowStmt   of SynRange*ControlFlow
+    | Syn_ReturnStmt        of SynRange*SyntaxExpr option
+    | Syn_CompoundStmt      of SynRange*SyntaxStmt list
 
     member m.Range =
         match m with
@@ -59,32 +59,32 @@ type SyntaxStmt =
         | Syn_ReturnStmt(rg, _)             -> rg
         | Syn_CompoundStmt(rg, _)           -> rg
 
-type FunctionDeclarator =
-    | FunctionDeclarator of (string*SyntaxType) list*SyntaxType
+type MethodDeclarator =
+    | MethodDeclarator of (string*SyntaxType) list*SyntaxType
 
     member m.ParamList =
-        match m with | FunctionDeclarator(ps, _) -> ps
+        match m with | MethodDeclarator(ps, _) -> ps
     member m.ReturnType =
-        match m with | FunctionDeclarator(_, ret) -> ret
+        match m with | MethodDeclarator(_, ret) -> ret
 
-type FunctionDecl =
-    | FunctionDecl of string*AccessModifier*FunctionDeclarator*SyntaxStmt
+type MethodDecl =
+    | MethodDecl of string*ModifierGroup*MethodDeclarator*SyntaxStmt
 
     member m.Name =
-        match m with | FunctionDecl(x, _, _, _) -> x
-    member m.Access =
-        match m with | FunctionDecl(_, x, _, _) -> x
+        match m with | MethodDecl(x, _, _, _) -> x
+    member m.Modifiers =
+        match m with | MethodDecl(_, x, _, _) -> x
     member m.Declarator =
-        match m with | FunctionDecl(_, _, x, _) -> x
+        match m with | MethodDecl(_, _, x, _) -> x
     member m.Body =
-        match m with | FunctionDecl(_, _, _, x) -> x
+        match m with | MethodDecl(_, _, _, x) -> x
 
 type FieldDecl =
-    | FieldDecl of string*AccessModifier*MutabilityModifier*SyntaxType
+    | FieldDecl of string*ModifierGroup*MutabilitySpec*SyntaxType
 
     member m.Name =
         match m with | FieldDecl(x, _, _, _) -> x
-    member m.Access =
+    member m.Modifiers =
         match m with | FieldDecl(_, x, _, _) -> x
     member m.Mutability =
         match m with | FieldDecl(_, _, x, _) -> x
@@ -92,11 +92,11 @@ type FieldDecl =
         match m with | FieldDecl(_, _, _, x) -> x
 
 type KlassDecl =
-    | KlassDecl of string*AccessModifier*FunctionDecl list*FieldDecl list
+    | KlassDecl of string*ModifierGroup*MethodDecl list*FieldDecl list
 
     member m.Name =
         match m with | KlassDecl(x, _, _, _) -> x
-    member m.Access =
+    member m.Modifiers =
         match m with | KlassDecl(_, x, _, _) -> x
     member m.Methods =
         match m with | KlassDecl(_, _, x, _) -> x
@@ -104,12 +104,23 @@ type KlassDecl =
         match m with | KlassDecl(_, _, _, x) -> x
 
 type ModuleDecl =
-    | ModuleDecl of Range*ModuleIdent
+    | ModuleDecl of SynRange*ModuleIdent
+
+    member m.Range =
+        match m with | ModuleDecl(x, _) -> x
+    member m.Identifier =
+        match m with | ModuleDecl(_, x) -> x
+
 type ImportDecl =
-    | ImportDecl of Range*ModuleIdent
+    | ImportDecl of SynRange*ModuleIdent
+
+    member m.Range =
+        match m with | ImportDecl(x, _) -> x
+    member m.Identifier =
+        match m with | ImportDecl(_, x) -> x
 
 type CodePage =
-    { ModuleName  : ModuleIdent;
-      ImportList  : ModuleIdent list;
-      Functions   : FunctionDecl list;
-      Klasses     : KlassDecl list }
+    { Path        : string
+      ModuleInfo  : ModuleDecl
+      ImportList  : ImportDecl list
+      KlassList   : KlassDecl list }

@@ -56,13 +56,15 @@
   <Import Project="$(FSharpTargetsPath)" />
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
+    <Compile Include="ResultUtils.fs" />
     <Compile Include="LookupUtils.fs" />
     <Compile Include="Language.fs" />
     <Compile Include="Syntax.fs" />
-    <Compile Include="Parser.fs" />
     <Compile Include="Ast.fs" />
+    <Compile Include="Parser.fs" />
     <Compile Include="Compiler.fs" />
     <Compile Include="ErrorMessage.fs" />
+    <Compile Include="Preprocessor.fs" />
     <Compile Include="TypeChecker.fs" />
     <Compile Include="Bytecode.fs" />
     <Compile Include="CodeGenerator.fs" />

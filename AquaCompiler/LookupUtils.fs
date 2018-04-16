@@ -2,10 +2,10 @@
 
 open System.Collections.Generic
 
-type Lookup<'K,'T> = IDictionary<'K,'T>
+type Lookup<'K, 'V> = IDictionary<'K, 'V>
 
 module Lookup =
-    let create data =
+    let create (data: seq<'K * 'V>) =
         dict data
 
     let length (src: Lookup<_, _>) =

@@ -1,9 +1,6 @@
 ﻿module Aqua.Language
 
 open System
-open System.Collections.Generic
-
-open Aqua.LookupUtils
 
 type BuiltinTypeCategory =
     | Unit
@@ -37,34 +34,68 @@ type BinaryOp =
 type ControlFlow = 
     | Break | Continue
 
-type MutabilityModifier = 
+[<RequireQualifiedAccess>]
+type MutabilitySpec = 
     | Mutable | Readonly
 
+[<RequireQualifiedAccess>]
 type AccessModifier =
     | Private | Public
 
+[<RequireQualifiedAccess>]
+type LifetimeModifier =
+    | Instance | Static
+
+type ModifierGroup =
+    { AccessType: AccessModifier
+      LifetimeType: LifetimeModifier }
+
+let kDefaultAccessType = AccessModifier.Public
+let kDefaultLifetimeType = LifetimeModifier.Instance
+
+// module
+//
+type ModuleIdent =
+    // domain should be empty or period-separated identifiers
+    // name should be a valid identifier
+    | ModuleIdent of domain:string*name:string
+
+    static member ofList idList =
+        let a = List.toArray idList
+        let domain = String.Join(".", Seq.take (a.Length-1) a)
+        let name = Array.last a
+
+        ModuleIdent(domain, name)
+
+    member m.Domain =
+        match m with | ModuleIdent(x, _) -> x
+    member m.Name =
+        match m with | ModuleIdent(_, x) -> x
+
+    override m.ToString() = m.Domain + "." + m.Name
+
 // type
 //
-type TypeStub =
+type TypeIdent =
     // primary type defined in aqua language
-    | SystemStub of BuiltinTypeCategory
+    | SystemTypeIdent of BuiltinTypeCategory
     // TODO: classify into classes and enums
     // user-defined type
-    | UserStub of string
+    | UserTypeIdent of ModuleIdent*string
     // aggregate function type
-    | FunctionStub of FunctionSignature
+    | FunctionTypeIdent of FunctionSignature
 
     member m.IsReferenceType =
         match m with
-        | SystemStub(Object)
-        | UserStub(_)
-        | FunctionStub(_) ->
+        | SystemTypeIdent(Object)
+        | UserTypeIdent(_)
+        | FunctionTypeIdent(_) ->
             true
         | _ -> 
             false
 
 and FunctionSignature =
-    | FunctionSignature of TypeStub list * TypeStub
+    | FunctionSignature of TypeIdent list * TypeIdent
 
     member m.ParamTypeList =
         match m with | FunctionSignature(params', _) -> params'
@@ -76,20 +107,20 @@ and FunctionSignature =
 
 // shortcuts for TypeStub construction
 //
-let kUnitType = SystemStub Unit
-let kBoolType = SystemStub Bool
-let kIntType = SystemStub Int
-let kFloatType = SystemStub Float
-let kObjectType = SystemStub Object
+let kUnitType = SystemTypeIdent Unit
+let kBoolType = SystemTypeIdent Bool
+let kIntType = SystemTypeIdent Int
+let kFloatType = SystemTypeIdent Float
+let kObjectType = SystemTypeIdent Object
 
-let makeFunctionStub paramTypes retType =
-    FunctionStub <| FunctionSignature(paramTypes, retType)
+let makeFunctionTypeIdent paramTypes retType =
+    FunctionTypeIdent <| FunctionSignature(paramTypes, retType)
 
 let getTypeName stub =
     match stub with
-    | SystemStub(t)     -> t.ToString()
-    | UserStub(name)    -> name
-    | FunctionStub(s)   -> s.ToString()
+    | SystemTypeIdent(t)                 -> t.ToString()
+    | UserTypeIdent(moduleName, name)    -> moduleName.ToString() + "." + name
+    | FunctionTypeIdent(s)               -> s.ToString()
 
 
 // Literal
@@ -106,34 +137,40 @@ type Literal =
 
 // Definitions
 //
-type FunctionDefinition =
-    | FunctionDefinition of name:string * 
-                            access:AccessModifier * 
-                            signature: FunctionSignature
+
+type TypedName = string*TypeIdent
+
+type MethodDefinition =
+    | MethodDefinition of name: string * 
+                          modifiers: ModifierGroup *
+                          signature: FunctionSignature
     
     member m.Name =
-        match m with | FunctionDefinition(x, _, _) -> x
-    member m.Access =
-        match m with | FunctionDefinition(_, x, _) -> x
+        match m with | MethodDefinition(x, _, _) -> x
+    member m.Modifiers =
+        match m with | MethodDefinition(_, x, _) -> x
     member m.Signature =
-        match m with | FunctionDefinition(_, _, x) -> x
+        match m with | MethodDefinition(_, _, x) -> x
 
 type FieldDefinition =
-    | FieldDefinition of name:string * 
-                         access:AccessModifier * 
-                         type':TypeStub
+    | FieldDefinition of name: string * 
+                         modifiers: ModifierGroup *
+                         mutability: MutabilitySpec *
+                         type': TypeIdent
 
     member m.Name =
-        match m with | FieldDefinition(x, _, _) -> x
-    member m.Access =
-        match m with | FieldDefinition(_, x, _) -> x
-    member m.Type =
-        match m with | FieldDefinition(_, _, x) -> x
+        match m with | FieldDefinition(x, _, _, _) -> x
+    member m.Modifiers =                        
+        match m with | FieldDefinition(_, x, _, _) -> x
+    member m.Mutability =                          
+        match m with | FieldDefinition(_, _, x, _) -> x
+    member m.Type =                          
+        match m with | FieldDefinition(_, _, _, x) -> x
 
 type KlassDefinition =
-    | KlassDefinition of name:string *
-                         fields:Lookup<string, FieldDefinition> * 
-                         methods:Lookup<string, FunctionDefinition list>
+    | KlassDefinition of name: string *
+                         fields: FieldDefinition list * 
+                         methods: MethodDefinition list
 
     member m.Name =
         match m with | KlassDefinition(x, _, _) -> x
@@ -154,30 +191,8 @@ type EnumDefinition =
         match m with | EnumDefinition(_, x) -> x
 *)
 
-// module
-//
-type ModuleIdent =
-    // domain should be empty or period-separated identifiers
-    // name should be a valid identifier
-    | ModuleIdent of domain:string*name:string
-
-    static member ofList l =
-        let a = List.toArray l
-        let domain = String.Join(".", Seq.take (a.Length-1) a)
-        let name = Array.last a
-
-        ModuleIdent(domain, name)
-
-    member m.Domain =
-        match m with | ModuleIdent(x, _) -> x
-    member m.Name =
-        match m with | ModuleIdent(_, x) -> x
-
-    override m.ToString() = m.Domain + "." + m.Name
-
 type BasicModuleInfo =
     { ModuleName: ModuleIdent;
       ImportList: ModuleIdent list;
       //EnumList: EnumDefinition list;
-      KlassList: KlassDefinition list;
-      FunctionList: FunctionDefinition list; }
+      KlassList: KlassDefinition list; }

@@ -17,42 +17,38 @@ let isInvocable ctx signature argTypeList =
 
 let isAssignable ctx expr =
     match expr with
-    | Ast_NameAccessExpr(_, mut, _) -> mut=Mutable
-    | _                             -> false
+    | Ast_NameAccessExpr(_, mut, _) -> 
+        mut = MutabilitySpec.Mutable
+    | Ast_MemberAccessExpr(_, e, name) ->
+        let fieldOwner = (getAstExprType e).ToString()
 
-// TODO: refactor resolveFunctionCall and resolveMethodCall
-let resolveFunctionCall ctx rg funcName argList =
-    let argTypeList = 
-        argList |> List.map getAstExprType
-
-    // TODO: refine overload resolving
-    let candidates = 
-        lookupFunction ctx funcName
-        |> List.filter (fun def -> isInvocable ctx def.Signature argTypeList)
-
-    match candidates with
-    | [x] ->
-        Ok <| Ast_InvocationExpr(CallableFunction x, argList)
-    | [] ->
-        Error <| invalidFunctionCall rg funcName argTypeList
+        match lookupField ctx fieldOwner name with
+        | Some def -> def.Mutability = MutabilitySpec.Mutable
+        | None -> false
     | _ ->
-        Error <| invalidFunctionResolve rg funcName argTypeList
+        false
 
-let resolveMethodCall ctx rg typeName funcName argList =
+let resolveImplicitMethodCall ctx rg funcName argTypeList =
+    []
+
+let resolveExplicitMethodCall ctx rg selfExpr funcName argTypeList =
+    []
+
+let resolveMethodCall ctx rg typeName methodName argList =
     let argTypeList = 
         argList |> List.map getAstExprType
 
     let candidates = 
-        lookupMethod ctx typeName funcName
+        lookupMethod ctx typeName methodName
         |> List.filter (fun def -> isInvocable ctx def.Signature argTypeList)
 
     match candidates with
     | [x] ->
         Ok <| Ast_InvocationExpr(CallableMethod(typeName, x), argList)
     | [] ->
-        Error <| invalidFunctionCall rg funcName argTypeList
+        Error <| invalidFunctionCall rg methodName argTypeList
     | _ ->
-        Error <| invalidFunctionResolve rg funcName argTypeList
+        Error <| invalidFunctionResolve rg methodName argTypeList
 
 
 let resolveExpressionCall ctx rg calleeExpr argList =
@@ -60,13 +56,13 @@ let resolveExpressionCall ctx rg calleeExpr argList =
         argList |> List.map getAstExprType
 
     match calleeExpr |> getAstExprType with
-    | FunctionStub(signature) when isInvocable ctx signature argTypeList ->
+    | FunctionTypeIdent(signature) when isInvocable ctx signature argTypeList ->
         Ok <| Ast_InvocationExpr(CallableExpression(calleeExpr, signature), argList)
     | _ ->
         Error <| invalidExpressionCall rg argTypeList
 
 type SyntaxTypeTranslator = 
-    TranslationContext -> SyntaxType -> TypeStub option*TranslationContext
+    TranslationContext -> SyntaxType -> TypeIdent option*TranslationContext
 type ExpressionTranslator = 
     TranslationContext -> SyntaxExpr -> AstExpr option*TranslationContext
 type StatementTranslator = 
@@ -88,51 +84,14 @@ let translateTriple (f, g, h) ctx x y z =
 // helpers
 //
 
-let rec translateTypeListLite lookup typeList =
-    let translateTypeAux type' =
-        match type' with
-        | Syn_SystemType(_, category) -> 
-            Ok <| SystemStub category
-
-        | Syn_UserType(rg, name) ->
-            match lookup name with
-            | Some _ -> Ok <| UserStub name
-            | None -> Error <| [invalidUserType rg name]
-
-        | Syn_FunctionType(_, paramTypeList, retType) ->
-            retType::paramTypeList 
-            |> translateTypeListLite lookup
-            |> Result.map (fun ts ->
-                               let paramsStub = ts |> List.tail
-                               let returnStub = ts |> List.head
-                               
-                               makeFunctionStub paramsStub returnStub)
-
-    let resultList = List.map translateTypeAux typeList
-    let isOk = function | Ok _ -> true | Error _ -> false
-
-    if resultList |> List.forall isOk then
-        resultList
-        |> List.choose (function | Ok x -> Some x | Error _ -> None)
-        |> Ok
-    else
-        resultList
-        |> List.map (function | Ok _ -> [] | Error msgList -> msgList)
-        |> List.reduce List.append
-        |> Error
-
-let translateTypeLite lookup type' =
-    translateTypeListLite lookup [type']
-    |> Result.map List.exactlyOne
-
 let rec translateType ctx type' =
     match type' with
     | Syn_SystemType(_, category) -> 
-        ctx |> makeEvalResult (SystemStub category)
+        ctx |> makeEvalResult (SystemTypeIdent category)
 
     | Syn_UserType(rg, name) ->
         match lookupType ctx name with
-        | Some _ -> ctx |> makeEvalResult (UserStub name) 
+        | Some item -> ctx |> makeEvalResult item.Type 
         | None -> ctx |> makeEvalError (invalidUserType rg name)
 
     | Syn_FunctionType(_, paramTypeList, retType) ->
@@ -143,16 +102,16 @@ let rec translateType ctx type' =
                     let paramsStub = ts |> List.tail
                     let returnStub = ts |> List.head
                     
-                    Ok <| makeFunctionStub paramsStub returnStub)
+                    Ok <| makeFunctionTypeIdent paramsStub returnStub)
 
 let rec translateExpr ctx expr =
 
-    // case-wise translators
+    // case-wise translate functions
     //
     let translateInstanceExpr rg =
         if isInstanceContext ctx then
-            let type' = UserStub (getInstanceName ctx)
-            ctx |> makeEvalResult (Ast_InstanceExpr type')
+            let t = (getCurrentKlassType ctx)
+            ctx |> makeEvalResult (Ast_InstanceExpr t)
         else
             ctx |> makeEvalError (invalidInstanceReference rg)
 
@@ -187,26 +146,25 @@ let rec translateExpr ctx expr =
         |> processEvalResult2 (fun e t -> Ok <| Ast_TypeCastExpr(e, t))
 
     let translateInvocationExpr rg calleeExpr args =
-        let args', newCtx = List.mapFold translateExpr ctx args
 
-        if args' |> List.forall Option.isSome then
-            let argValueList = args' |> List.map Option.get
+        // try translate arguments provided
+        let maybeAstArgs, newCtx = List.mapFold translateExpr ctx args
+
+        if maybeAstArgs |> List.forall Option.isSome then
+            let astArgs = maybeAstArgs |> List.map Option.get
 
             match calleeExpr with
-            | Syn_NameAccessExpr(nameRange, funcName) when lookupVariable ctx funcName |> Option.isNone ->
-                newCtx 
-                |> processReturn (resolveFunctionCall ctx nameRange funcName argValueList)
             | Syn_MemberAccessExpr(nameRange, srcExpr, methodName) when true ->
                 translateExpr newCtx srcExpr
                 |> processEvalResult
                        (fun e ->
                             let typeName = (getAstExprType e).ToString()
-                            resolveMethodCall ctx nameRange typeName methodName argValueList)
+                            resolveMethodCall ctx nameRange typeName methodName astArgs)
             | _ ->
                 translateExpr newCtx calleeExpr
                 |> processEvalResult 
                        (fun e ->
-                            resolveExpressionCall ctx calleeExpr.Range e argValueList)
+                            resolveExpressionCall ctx calleeExpr.Range e astArgs)
                 
         else
             newCtx |> escapeEvalError
@@ -219,49 +177,49 @@ let rec translateExpr ctx expr =
                     let rhsType = getAstExprType e2
 
                     match op with
-                        | Op_Assign ->
-                            if not <| isAssignable ctx e1 then
-                                Error <| invalidAssignment lhs.Range
-                            else if not <| existImplicitConversion ctx rhsType lhsType then
-                                Error <| invalidBinaryOperation rg op lhsType rhsType
-                            else
-                                // TODO: make assignment an independent case?
-                                Ok <| Ast_BinaryExpr(lhsType, op, e1, e2)
+                    | Op_Assign ->
+                        if not <| isAssignable ctx e1 then
+                            Error <| invalidAssignment lhs.Range
+                        else if not <| existImplicitConversion ctx rhsType lhsType then
+                            Error <| invalidBinaryOperation rg op lhsType rhsType
+                        else
+                            // TODO: make assignment an independent case?
+                            Ok <| Ast_BinaryExpr(lhsType, op, e1, e2)
 
-                        | Op_Plus | Op_Minus
-                        | Op_Asterisk | Op_Slash
-                        | Op_Modulus 
-                        | Op_BitwiseAnd | Op_BitwiseOr
-                        | Op_BitwiseXor ->
-                            match lhsType, rhsType with
-                            | SystemStub(Int), SystemStub(Int) ->
-                                Ok <| Ast_BinaryExpr(kIntType, op, e1, e2)
-                            | SystemStub(_), SystemStub(_) ->
-                                Error <| invalidBinaryOperation rg op lhsType rhsType
-                            | _ -> 
-                                failwith "user type not supported yet"
+                    | Op_Plus | Op_Minus
+                    | Op_Asterisk | Op_Slash
+                    | Op_Modulus 
+                    | Op_BitwiseAnd | Op_BitwiseOr
+                    | Op_BitwiseXor ->
+                        match lhsType, rhsType with
+                        | SystemTypeIdent(Int), SystemTypeIdent(Int) ->
+                            Ok <| Ast_BinaryExpr(kIntType, op, e1, e2)
+                        | SystemTypeIdent(_), SystemTypeIdent(_) ->
+                            Error <| invalidBinaryOperation rg op lhsType rhsType
+                        | _ -> 
+                            failwith "user type not supported yet"
 
-                        | Op_Equal | Op_NotEqual
-                        | Op_Greater | Op_GreaterEq
-                        | Op_Less | Op_LessEq ->
-                            match lhsType, rhsType with
-                            | SystemStub(x), SystemStub(y) when x=y && x<>Unit ->
-                                Ok <| Ast_BinaryExpr(kBoolType, op, e1, e2)
-                            | SystemStub(_), SystemStub(_) ->
-                                Error <| invalidBinaryOperation rg op lhsType rhsType
-                            | _ -> 
-                                failwith "user type not supported yet"
+                    | Op_Equal | Op_NotEqual
+                    | Op_Greater | Op_GreaterEq
+                    | Op_Less | Op_LessEq ->
+                        match lhsType, rhsType with
+                        | SystemTypeIdent(x), SystemTypeIdent(y) when x=y && x<>Unit ->
+                            Ok <| Ast_BinaryExpr(kBoolType, op, e1, e2)
+                        | SystemTypeIdent(_), SystemTypeIdent(_) ->
+                            Error <| invalidBinaryOperation rg op lhsType rhsType
+                        | _ -> 
+                            failwith "user type not supported yet"
 
-                        | Op_Conjunction | Op_Disjunction ->
-                            match lhsType, rhsType with
-                            | SystemStub(Bool), SystemStub(Bool) ->
-                                Ok <| Ast_BinaryExpr(kBoolType, op, e1, e2)
+                    | Op_Conjunction | Op_Disjunction ->
+                        match lhsType, rhsType with
+                        | SystemTypeIdent(Bool), SystemTypeIdent(Bool) ->
+                            Ok <| Ast_BinaryExpr(kBoolType, op, e1, e2)
 
-                            | SystemStub(_), SystemStub(_) ->
-                                Error <| invalidBinaryOperation rg op lhsType rhsType
+                        | SystemTypeIdent(_), SystemTypeIdent(_) ->
+                            Error <| invalidBinaryOperation rg op lhsType rhsType
 
-                            | _ -> 
-                                failwith "user type not supported yet")
+                        | _ -> 
+                            failwith "user type not supported yet")
 
     //
     //
@@ -275,7 +233,7 @@ let rec translateExpr ctx expr =
     | Syn_InvocationExpr(rg, callee, args)      -> translateInvocationExpr rg callee args
     | Syn_BinaryExpr(rg, op, lhs, rhs)          -> translateBinaryExpr rg op lhs rhs
 
-let rec translateStmt ctx (stmt: SyntaxStmt) : AstStmt option*TranslationContext =
+let rec translateStmt ctx stmt =
 
     // auxiliary functions
     //
@@ -381,8 +339,8 @@ let rec translateStmt ctx (stmt: SyntaxStmt) : AstStmt option*TranslationContext
     | Syn_ReturnStmt(rg, maybeExpr) -> translateReturnStmt rg maybeExpr
     | Syn_CompoundStmt(rg, children) -> translateCompoundStmt rg children
 
-let translateFunction env body =
-    let result, ctx = translateStmt (initContext env) body
+let translateMethod env (item: PendingMethod) =
+    let result, ctx = translateStmt (createContext env) item.Body
     
     match result with
     | Some s ->
@@ -390,25 +348,8 @@ let translateFunction env body =
     | None ->
         Error <| ctx.ErrorMessages
 
-let prepareFunctionRecord lookupType (decl: FunctionDecl) =
-    let paramNameList = List.map fst decl.Declarator.ParamList
-    let paramTypeList = List.map snd decl.Declarator.ParamList
-    let retType = decl.Declarator.ReturnType
+let translateKlass (item: PendingKlass) =
+    ()
 
-    retType::paramTypeList
-    |> translateTypeListLite lookupType
-    |> Result.map (fun ts ->
-                       let paramsStub = ts |> List.tail
-                       let returnStub = ts |> List.head
-                       
-                       let signature = FunctionSignature(paramsStub, returnStub)
-                       let definition = FunctionDefinition(decl.Name, decl.Access, signature)
-                       let paramRecord = List.map2 (fun x y -> ParameterRecord(x, y)) paramNameList paramsStub
-
-                       FunctionRecord(definition, paramRecord, decl.Body))
-
-let prepareKlassRecord lookupType (decl: KlassDecl) =
-    KlassRecord(KlassDefinition("", null, null), [])
-
-let prepareModuleRecord (session: CompilerSession) (decl: CodePage) =
+let translateModule (session: TranslationSession) =
     ()

@@ -8,26 +8,22 @@ open System.IO
 open System.Collections.Generic
 
 type ErrorMessage =
-    { ReferenceRange: Range; Message: string; }
+    { ReferenceRange: SynRange; Message: string; }
 
 type ErrorMessageList = ErrorMessage list
 
 //
-// Compiler Session
+// Translation Session
 //
 let parseModuleInfo s = failwith ""
 
-type CompilerSession(importPathList) =
-    let errorList = ResizeArray<ErrorMessage>()
+type ModuleLoader(importPathList) =
     let importCache = Dictionary<ModuleIdent, BasicModuleInfo>()
     
     do for path in importPathList do
         if not <| Directory.Exists(path) then
             failwith <| sprintf "import path %s does not exist" path
-    
-    member m.HasError =
-        errorList.Count > 0
-
+     
     member m.LoadModule ident =
         if importCache.ContainsKey(ident) then
             Some <| importCache.[ident]
@@ -48,41 +44,42 @@ type CompilerSession(importPathList) =
 
             moduleInfo
 
-    member m.AppendError msgList =
-        errorList.AddRange(msgList)
-
 //
 // Translation Environment
 //
+
+// <field name> -> <definition>
+type FieldLookupTable = Lookup<string, FieldDefinition>
+// <function name> -> <definition list>
+type MethodLookupTable = Lookup<string, MethodDefinition list>
+
 type TypeLookupItem =
     //| EnumLookupItem of EnumDefinition
-    | KlassLookupItem of ModuleIdent*KlassDefinition
+    | KlassLookupItem of ModuleIdent*KlassDefinition*FieldLookupTable*MethodLookupTable
 
-type FunctionLookupItem =
-    | FunctionLookupItem of ModuleIdent*FunctionDefinition
+    member m.Type =
+        match m with
+        | KlassLookupItem(moduleName, def, _, _) -> UserTypeIdent(moduleName, def.Name)
 
 // <type name> -> <definition>
 type TypeLookupTable = Lookup<string, TypeLookupItem>
 
-// <type name>, <function name> -> <definition list>
-// NOTE type name of global function should be empty
-type FunctionLookupTable = Lookup<string*string, FunctionDefinition list>
-
-type TranslationEnvironment =
-    { CurrentInstance: KlassDefinition option
-      CurrentFunction: FunctionDefinition
-      TypeLookup: TypeLookupTable
-      FunctionLookup: FunctionLookupTable }
-
 type VariableLookupItem =
-    | VariableLookupItem of string*MutabilityModifier*TypeStub
+    | VariableLookupItem of string*MutabilitySpec*TypeIdent
 
     member m.Name =
-        match m with | VariableLookupItem(name, _, _) -> name
+        match m with | VariableLookupItem(x, _, _) -> x
     member m.Mutability =
-        match m with | VariableLookupItem(_, mut, _) -> mut
+        match m with | VariableLookupItem(_, x, _) -> x
     member m.Type =
-        match m with | VariableLookupItem(_, _, type') -> type'
+        match m with | VariableLookupItem(_, _, x) -> x
+
+type TranslationEnvironment =
+    { CurrentModule: ModuleIdent
+      CurrentKlass: KlassDefinition
+      CurrentMethod: MethodDefinition
+
+      TypeLookup: TypeLookupTable }
 
 type TranslationContext =
     { Environment: TranslationEnvironment
@@ -91,7 +88,7 @@ type TranslationContext =
       VariableLookup: Map<string, VariableLookupItem>
       ErrorMessages: ErrorMessageList }
 
-let initContext env =
+let createContext env =
     let varLookup = Map.empty
 
     { Environment = env
@@ -101,52 +98,38 @@ let initContext env =
 
 // context proxy
 //
-let getEnvironment ctx =
-    ctx.Environment
 
-let getCurrentInstance ctx =
-    ctx.Environment.CurrentInstance
+let getCurrentKlass ctx =
+    ctx.Environment.CurrentKlass
 
-let getCurrentFunction ctx =
-    ctx.Environment.CurrentFunction
+let getCurrentMethod ctx =
+    ctx.Environment.CurrentMethod
+
+let getCurrentKlassType ctx =
+    let env = ctx.Environment
+    UserTypeIdent(env.CurrentModule, env.CurrentKlass.Name)
+
+let getMethodName ctx =
+    (getCurrentMethod ctx).Name
+
+let getReturnType ctx =
+    (getCurrentMethod ctx).Signature.ReturnType
+
+let isInstanceContext ctx =
+    (getCurrentMethod ctx).Modifiers.LifetimeType <> LifetimeModifier.Static
 
 let lookupType ctx name =
      ctx.Environment.TypeLookup
      |> Lookup.tryFind name
 
-let lookupFunction ctx funcName = 
-    ctx.Environment.FunctionLookup
-    |> Lookup.tryFind ("", funcName)
-    |> Option.defaultValue []
-
 let lookupMethod ctx typeName funcName =
-    ctx.Environment.FunctionLookup
-    |> Lookup.tryFind (typeName, funcName)
+    lookupType ctx typeName
+    |> Option.bind (function | KlassLookupItem(_, _, _, table) -> table |> Lookup.tryFind funcName)
     |> Option.defaultValue []
 
 let lookupField ctx typeName fieldName =
     lookupType ctx typeName
-    |> Option.bind 
-           (function
-            | KlassLookupItem(_, def) -> def.Fields |> Lookup.tryFind fieldName)
-
-let isStaticContext ctx =
-    ctx |> getCurrentInstance |> Option.isNone
-
-let isInstanceContext ctx =
-    ctx |> getCurrentInstance |> Option.isSome
-
-let getInstanceName ctx =
-    ctx
-    |> getCurrentInstance
-    |> Option.map (fun x -> x.Name)
-    |> Option.defaultValue ""
-
-let getFunctionName ctx =
-    (getCurrentFunction ctx).Name
-
-let getReturnType ctx =
-    (getCurrentFunction ctx).Signature.ReturnType
+    |> Option.bind (function | KlassLookupItem(_, _, table, _) -> table |> Lookup.tryFind fieldName)
 
 let lookupVariable ctx name =
     ctx.VariableLookup 
@@ -249,16 +232,37 @@ let updateContext3 f (x1, x2, x3, ctx) =
     x1, x2, x3, f ctx
         
 
-type ParameterRecord =
-    | ParameterRecord of string*TypeStub
-type FunctionRecord =
-    | FunctionRecord of FunctionDefinition*ParameterRecord list*SyntaxStmt
+type PendingParameter =
+    | PendingParameter of string*TypeIdent
+type PendingMethod =
+    | PendingMethod of MethodDefinition*PendingParameter list*SyntaxStmt
 
-type KlassRecord =
-    | KlassRecord of KlassDefinition*FunctionRecord list
+    member m.Definition =
+        match m with PendingMethod(x, _, _) -> x
+    member m.ParameterList =
+        match m with PendingMethod(_, x, _) -> x
+    member m.Body =
+        match m with PendingMethod(_, _, x) -> x
 
-type ModuleRecord =
-    { ModuleName: ModuleIdent
-      ImportList: ModuleIdent list
-      FunctionRecords: FunctionRecord list
-      KlassRecords: KlassRecord list }
+type PendingKlass =
+    | PendingKlass of KlassDefinition*PendingMethod list
+
+    member m.Definition =
+        match m with PendingKlass(x, _) -> x
+    member m.MethodList =
+        match m with PendingKlass(_, x) -> x
+
+type TranslationSession(currentModule: BasicModuleInfo, importModules: BasicModuleInfo list, pendingKlassList: PendingKlass list) =
+    let errorList = ResizeArray<ErrorMessage>()
+
+    member m.CurrentModule =
+        currentModule
+
+    member m.HasError =
+        errorList.Count > 0
+
+    member m.AppendError msgList =
+        errorList.AddRange(msgList)
+
+    member m.LookupType name =
+        Some <| SystemTypeIdent(Int)

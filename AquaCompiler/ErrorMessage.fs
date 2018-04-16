@@ -5,6 +5,10 @@ open Aqua.Compiler
 let createErrorMessage rg msg =
     { ReferenceRange = rg; Message = msg }
 
+let invalidModuleReference rg ident =
+    sprintf "cannot import module %A" ident
+    |> createErrorMessage rg
+
 let invalidUserType rg typeName =
     sprintf "cannot find user type %s" typeName
     |> createErrorMessage rg
