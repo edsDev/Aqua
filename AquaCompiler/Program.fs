@@ -6,7 +6,7 @@ open Aqua.Compiler
 open Aqua.Preprocessor
 open Aqua.TypeChecker
 
-// 
+//
 // Reference Lookup Path: string list
 type ProjectSession = class end
 
@@ -31,19 +31,13 @@ let main argv =
                     return false;
                 }
 
-                return (y is int);
+                return y is int;
             }
 
             // line comment
             public static fun sum(x: int, y: int) -> int {
                 return x + /* block comment */ y;
             }
-
-            /*
-            public static fun apply(f: (int, int) -> int, x: int, y: int) -> int {
-                return f(x, y) + sum(x, y) + g(x, y) + z;
-            }
-            */
         }
 
         /*
@@ -63,13 +57,13 @@ let main argv =
         }
         */
     """
-   
+
     // parse
-    let codePage = 
+    let codePage =
         match parseCodePage sampleCode with
         | Success t -> t
         | Failure e -> printfn "%s" e; failwith e
-    
+
     // preprocess
     let session, pendingKlassList =
         let loader = ModuleLoader([])

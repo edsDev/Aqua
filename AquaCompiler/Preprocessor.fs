@@ -15,7 +15,7 @@ open System.Linq
 let rec translateTypeListLite lookupProxy typeList =
     let translateTypeAux type' =
         match type' with
-        | Syn_SystemType(_, category) -> 
+        | Syn_SystemType(_, category) ->
             Ok <| SystemTypeIdent category
 
         | Syn_UserType(rg, name) ->
@@ -24,12 +24,12 @@ let rec translateTypeListLite lookupProxy typeList =
             | None -> Error <| [invalidUserType rg name]
 
         | Syn_FunctionType(_, paramTypeList, retType) ->
-            retType::paramTypeList 
+            retType::paramTypeList
             |> translateTypeListLite lookupProxy
             |> Result.map (fun ts ->
                                let paramsStub = ts |> List.tail
                                let returnStub = ts |> List.head
-                               
+
                                makeFunctionTypeIdent paramsStub returnStub)
 
     let resultList = List.map translateTypeAux typeList
@@ -56,11 +56,11 @@ let preprocessField lookupProxy (decl: FieldDecl) =
     Error []
 
 let preprocessMethod lookupProxy (decl: MethodDecl) =
-    
-    let paramNameList, paramTypeList = 
+
+    let paramNameList, paramTypeList =
         List.unzip decl.Declarator.ParamList
 
-    let retType = 
+    let retType =
         decl.Declarator.ReturnType
 
     retType::paramTypeList
@@ -68,7 +68,7 @@ let preprocessMethod lookupProxy (decl: MethodDecl) =
     |> Result.map (fun ts ->
                        let translatedParamTypes = ts |> List.tail
                        let translatedReturnType = ts |> List.head
-                       
+
                        let paramList = List.zip paramNameList translatedParamTypes
                        let definition = MethodDefinition(decl.Name, decl.Modifiers, paramList, translatedReturnType)
 
@@ -76,12 +76,12 @@ let preprocessMethod lookupProxy (decl: MethodDecl) =
 
 let preprocessKlass lookupType (decl: KlassDecl) =
     let fields, fieldErrors =
-        decl.Fields 
+        decl.Fields
         |> List.map (preprocessField lookupType)
         |> Result.rearrange
 
     let methods, methodErrors =
-        decl.Methods 
+        decl.Methods
         |> List.map (preprocessMethod lookupType)
         |> Result.rearrange
 
@@ -94,9 +94,9 @@ let preprocessKlass lookupType (decl: KlassDecl) =
         Error <| List.append (fieldErrors |> List.collect id) (methodErrors |> List.collect id)
 
 
-let preprocessModule (loader: ModuleLoader) (decl: CodePage) =    
+let preprocessModule (loader: ModuleLoader) (decl: CodePage) =
     // 1. prepare type lookup and construct translation session
-    // 2. 
+    // 2.
 
     let currentModuleName =
         decl.ModuleInfo.Identifier
@@ -106,7 +106,7 @@ let preprocessModule (loader: ModuleLoader) (decl: CodePage) =
         |> List.map (fun decl -> loader.LoadModule decl.Identifier)
         |> List.choose id
 
-    let typeIdentLookup = 
+    let typeIdentLookup =
         Lookup.create <| seq {
             // internal types
             for klassInfo in decl.KlassList do
@@ -120,7 +120,7 @@ let preprocessModule (loader: ModuleLoader) (decl: CodePage) =
 
     let lookupProxy name =
         typeIdentLookup |> Lookup.tryFind name
-        
+
     let pendingKlassList =
         Seq.toList <| seq {
             for klass in decl.KlassList do
@@ -131,7 +131,7 @@ let preprocessModule (loader: ModuleLoader) (decl: CodePage) =
                     () // session.AppendError(msgs)
         }
 
-    let currentModule = 
+    let currentModule =
         { ModuleName = currentModuleName
           ImportList = importedModules |> List.map (fun info -> info.ModuleName)
           KlassList = pendingKlassList |> List.map (fun x -> x.Definition) }

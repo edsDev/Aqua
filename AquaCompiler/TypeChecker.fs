@@ -18,7 +18,7 @@ let isInvocable ctx signature argTypeList =
 
 let isAssignable ctx expr =
     match expr with
-    | Ast_NameAccessExpr(_, mut, _) -> 
+    | Ast_NameAccessExpr(_, mut, _) ->
         mut = MutabilitySpec.Mutable
     | Ast_MemberAccessExpr(_, e, name) ->
         let fieldOwner = (getAstExprType e).ToString()
@@ -36,10 +36,10 @@ let resolveExplicitMethodCall ctx rg selfExpr funcName argTypeList =
     []
 
 let resolveMethodCall ctx rg typeName methodName argList =
-    let argTypeList = 
+    let argTypeList =
         argList |> List.map getAstExprType
 
-    let candidates = 
+    let candidates =
         lookupMethod ctx typeName methodName
         |> List.filter (fun def -> isInvocable ctx def.Signature argTypeList)
 
@@ -53,7 +53,7 @@ let resolveMethodCall ctx rg typeName methodName argList =
 
 
 let resolveExpressionCall ctx rg calleeExpr argList =
-    let argTypeList = 
+    let argTypeList =
         argList |> List.map getAstExprType
 
     match calleeExpr |> getAstExprType with
@@ -62,11 +62,11 @@ let resolveExpressionCall ctx rg calleeExpr argList =
     | _ ->
         Error <| invalidExpressionCall rg argTypeList
 
-type SyntaxTypeTranslator = 
+type SyntaxTypeTranslator =
     TranslationContext -> SyntaxType -> TypeIdent option*TranslationContext
-type ExpressionTranslator = 
+type ExpressionTranslator =
     TranslationContext -> SyntaxExpr -> AstExpr option*TranslationContext
-type StatementTranslator = 
+type StatementTranslator =
     TranslationContext -> SyntaxStmt -> AstStmt option*TranslationContext
 
 let translatePair (f, g) ctx x y =
@@ -87,22 +87,22 @@ let translateTriple (f, g, h) ctx x y z =
 
 let rec translateType ctx type' =
     match type' with
-    | Syn_SystemType(_, category) -> 
+    | Syn_SystemType(_, category) ->
         ctx |> makeEvalResult (SystemTypeIdent category)
 
     | Syn_UserType(rg, name) ->
         match lookupType ctx name with
-        | Some item -> ctx |> makeEvalResult item.Type 
+        | Some item -> ctx |> makeEvalResult item.Type
         | None -> ctx |> makeEvalError (invalidUserType rg name)
 
     | Syn_FunctionType(_, paramTypeList, retType) ->
         retType::paramTypeList
         |> List.mapFold translateType ctx
-        |> processEvalResultList 
+        |> processEvalResultList
                (fun ts ->
                     let paramsStub = ts |> List.tail
                     let returnStub = ts |> List.head
-                    
+
                     Ok <| makeFunctionTypeIdent paramsStub returnStub)
 
 let rec translateExpr ctx expr =
@@ -121,19 +121,19 @@ let rec translateExpr ctx expr =
 
     let translateNameAccessExpr rg name =
         match lookupVariable ctx name with
-        | Some(VariableLookupItem(_, mut, t)) -> 
+        | Some(VariableLookupItem(_, mut, t)) ->
             ctx |> makeEvalResult (Ast_NameAccessExpr(t, mut, VariableLocal name))
         | None ->
             ctx |> makeEvalError (invalidVariableReference rg name)
 
     let translateMemberAccessExpr rg child name =
         translateExpr ctx child
-        |> processEvalResult 
+        |> processEvalResult
                (fun e ->
                     let t = getAstExprType e
                     let typeName = getTypeName t
                     match lookupField ctx typeName name with
-                    | Some x -> 
+                    | Some x ->
                         Ok <| Ast_MemberAccessExpr(x.Type, e, name)
                     | None ->
                         Error <| invalidFieldReference rg typeName name)
@@ -163,10 +163,10 @@ let rec translateExpr ctx expr =
                             resolveMethodCall ctx nameRange typeName methodName astArgs)
             | _ ->
                 translateExpr newCtx calleeExpr
-                |> processEvalResult 
+                |> processEvalResult
                        (fun e ->
                             resolveExpressionCall ctx calleeExpr.Range e astArgs)
-                
+
         else
             newCtx |> escapeEvalError
 
@@ -189,7 +189,7 @@ let rec translateExpr ctx expr =
 
                     | Op_Plus | Op_Minus
                     | Op_Asterisk | Op_Slash
-                    | Op_Modulus 
+                    | Op_Modulus
                     | Op_BitwiseAnd | Op_BitwiseOr
                     | Op_BitwiseXor ->
                         match lhsType, rhsType with
@@ -197,7 +197,7 @@ let rec translateExpr ctx expr =
                             Ok <| Ast_BinaryExpr(kIntType, op, e1, e2)
                         | SystemTypeIdent(_), SystemTypeIdent(_) ->
                             Error <| invalidBinaryOperation rg op lhsType rhsType
-                        | _ -> 
+                        | _ ->
                             failwith "user type not supported yet"
 
                     | Op_Equal | Op_NotEqual
@@ -208,7 +208,7 @@ let rec translateExpr ctx expr =
                             Ok <| Ast_BinaryExpr(kBoolType, op, e1, e2)
                         | SystemTypeIdent(_), SystemTypeIdent(_) ->
                             Error <| invalidBinaryOperation rg op lhsType rhsType
-                        | _ -> 
+                        | _ ->
                             failwith "user type not supported yet"
 
                     | Op_Conjunction | Op_Disjunction ->
@@ -219,7 +219,7 @@ let rec translateExpr ctx expr =
                         | SystemTypeIdent(_), SystemTypeIdent(_) ->
                             Error <| invalidBinaryOperation rg op lhsType rhsType
 
-                        | _ -> 
+                        | _ ->
                             failwith "user type not supported yet")
 
     //
@@ -278,13 +278,13 @@ let rec translateStmt ctx stmt =
                             |> bindEvalResult
                                    (fun newCtx2 declType ->
                                         declareVariable name mut declType newCtx2
-                                        |> if existImplicitConversion newCtx initType declType 
+                                        |> if existImplicitConversion newCtx initType declType
                                            then makeEvalResult (Ast_VarDeclStmt(mut, name, declType, value))
                                            else makeEvalError (invalidImpilicitConversion rg initType declType))
                         | None ->
                             declareVariable name mut initType newCtx
                             |> makeEvalResult (Ast_VarDeclStmt(mut, name, initType, value)))
-                
+
     let translateChoiceStmt rg pred pBranch nBranch =
         ensureExprType pred kBoolType ctx
         |> bindEvalResult
@@ -342,7 +342,7 @@ let rec translateStmt ctx stmt =
 
 let translateMethod env body =
     let result, ctx = translateStmt (createContext env) body
-    
+
     match result with
     | Some s ->
         Ok <| AstMethod(env.CurrentMethod, s)
@@ -361,7 +361,7 @@ let translateModule (session: TranslationSession) (klassList: PendingKlass list)
         }
 
         KlassLookupItem(moduleIdent, klassDef, fieldLookup, methodLookup)
-    
+
     let typeLookup = Lookup.create <| seq {
             for klass in session.CurrentModule.KlassList do
                 yield klass.Name, def2Lookup session.CurrentModule.ModuleName klass

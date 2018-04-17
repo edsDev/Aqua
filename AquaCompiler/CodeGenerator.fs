@@ -28,7 +28,7 @@ let rec compileExpr env re codeAcc expr =
         ()
     | Ast_TypeCheckExpr(child, testType) ->
         emitExpr <| child
-        
+
         let childType = getAstExprType child
 
         if childType.IsReferenceType then
@@ -58,3 +58,31 @@ let rec compileExpr env re codeAcc expr =
         args |> List.iter (fun x -> emitExpr <| x)
     | Ast_BinaryExpr(type', op, lhs, rhs) ->
         ()
+
+let rec compileStmt env re codeAcc stmt =
+    let emitBytecode = BytecodeAccumulator.appendBytecode codeAcc
+    let emitStmt = compileStmt env re codeAcc
+    let emitExpr = compileExpr env re codeAcc
+
+
+    match stmt with
+    | Ast_ExpressionStmt(expr) ->
+        emitExpr expr
+        emitBytecode <| Pop
+    | Ast_VarDeclStmt(mut, name, t, init) ->
+        ()
+    | Ast_ChoiceStmt(pred, pos, negOpt) ->
+        ()
+    | Ast_WhileStmt(pred, body) ->
+        ()
+    | Ast_ControlFlowStmt(mode) ->
+        ()
+    | Ast_ReturnStmt(exprOpt) ->
+        match exprOpt with
+        | Some expr -> emitExpr expr
+        | None -> ()
+
+        emitBytecode <| Ret
+
+    | Ast_CompoundStmt(children) ->
+        List.iter emitStmt children

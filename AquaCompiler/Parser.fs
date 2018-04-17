@@ -7,7 +7,7 @@ open FParsec
 let kLongestCommentLength = 10000
 
 let keywords =
-    [ "true"; "false"; "if"; "else"; "while"; 
+    [ "true"; "false"; "if"; "else"; "while";
       "fun"; "return"; "unit"; "bool"; "int";
       "val"; "var"; "this"; ]
 
@@ -20,7 +20,7 @@ type FieldOrMethod =
     | Field of FieldDecl
     | Method of MethodDecl
 
-    member m.MaybeField = 
+    member m.MaybeField =
         match m with
         | Field(x) -> Some x
         | Method(_) -> None
@@ -45,11 +45,11 @@ module ParsecInstance =
 
     // [Basic Component] literals
     //
-    let pBool = 
-        choice [stringReturn "true" true; stringReturn "false" false] 
+    let pBool =
+        choice [stringReturn "true" true; stringReturn "false" false]
         |>> BoolConst
 
-    let pInt = 
+    let pInt =
         pint32 |>> IntConst
 
     let pLiteral =
@@ -70,12 +70,12 @@ module ParsecInstance =
 
     // [Basic Component] whitespaces and comments
     //
-    let pLineComment = 
-        skipString "//" 
-        .>> skipRestOfLine true 
+    let pLineComment =
+        skipString "//"
+        .>> skipRestOfLine true
         <?> "line comment"
-    let pBlockComment = 
-        skipString "/*" 
+    let pBlockComment =
+        skipString "/*"
         .>> skipCharsTillString "*/" true kLongestCommentLength
         <?> "block comment"
 
@@ -112,7 +112,7 @@ module ParsecInstance =
     let sepByCharDelimiter =
         fun c p -> sepBy p (skipChar_ws c)
 
-    let sepByComma = 
+    let sepByComma =
         fun p -> sepByCharDelimiter ',' p
 
     // (woundn't consume tailing spaces)
@@ -139,8 +139,8 @@ module ParsecInstance =
     let mergeRange first last =
         assert (first.StartIndex + first.Length <= last.StartIndex)
 
-        { StartIndex    = first.StartIndex 
-          Length        = last.StartIndex - first.StartIndex + last.Length 
+        { StartIndex    = first.StartIndex
+          Length        = last.StartIndex - first.StartIndex + last.Length
           StartLine     = first.StartLine
           StartColumn   = first.StartColumn }
 
@@ -170,7 +170,7 @@ module ParsecInstance =
 
     let pCustomType =
         pIdent |> withRange1 Syn_UserType
-    
+
     let pMaybeFunctionType =
         let pAtomicType = (pSystemType <|> pCustomType) |> pullSpace
         let pReturnType = (skipString_ws "->" >>. pType) |> pullSpace
@@ -211,21 +211,21 @@ module ParsecInstance =
     // [Syntax Element] expression
     //
     let pLiteralExpr =
-        pLiteral 
+        pLiteral
         |> withRange1 Syn_LiteralExpr
         |> pullSpace
 
     let pNamedExpr =
-        pIdent 
+        pIdent
         |> withRange1 Syn_NameAccessExpr
         |> pullSpace
 
     let pExpr =
         let opp = OperatorPrecedenceParser()
 
-        let pAtomicExpr = 
+        let pAtomicExpr =
             choice [ pLiteralExpr; pNamedExpr; opp.ExpressionParser |> betweenParathe |> pullSpace ]
-        
+
         let pMemberAccessSuffix =
             let pDot = skipChar_ws '.'
             let pName = pIdent |> withRange1 MemberAccessSuffix
@@ -233,17 +233,17 @@ module ParsecInstance =
             pDot >>. pName |> pullSpace
 
         let pInvocationSuffix =
-            opp.ExpressionParser 
-            |> sepByComma 
+            opp.ExpressionParser
+            |> sepByComma
             |> betweenParathe
             |> withRange1 InvocationSuffix
             |> pullSpace
 
-        let pExprWithSuffix = 
+        let pExprWithSuffix =
             let exprSuffix = pMemberAccessSuffix <|> pInvocationSuffix
 
             pipe2 pAtomicExpr (many exprSuffix)
-                  (List.fold (fun expr suffix -> 
+                  (List.fold (fun expr suffix ->
                                   match suffix with
                                   | MemberAccessSuffix(rg, name) -> Syn_MemberAccessExpr(rg, expr, name)
                                   | InvocationSuffix(rg, args) -> Syn_InvocationExpr(rg, expr, args)))
@@ -260,7 +260,7 @@ module ParsecInstance =
             PostfixOperator(opString, pAfterString, prec, assoc, (),
                             fun (pos, type') value ->
                                 let rg = makeRange (adjustPosition opString pos) pos
-                                ctor (rg, value, Option.get type')) 
+                                ctor (rg, value, Option.get type'))
                 :> Operator<_, _, _>
 
         // workaround: some expression may need to parse a succeeding type
@@ -269,7 +269,7 @@ module ParsecInstance =
                 tuple2 (getPosition |> pullSpace) (preturn None)
 
             InfixOperator(opString, pAfterString, prec, assoc, (),
-                          fun (pos, _) lhs rhs -> 
+                          fun (pos, _) lhs rhs ->
                               let rg = makeRange (adjustPosition opString pos) pos
                               Syn_BinaryExpr(rg, opType, lhs, rhs))
                 :> Operator<_, _, _>
@@ -289,7 +289,7 @@ module ParsecInstance =
                 makeBinaryOp Op_NotEqual "!=" assocLeft ]
 
               // comparison
-              [ makeBinaryOp Op_Greater ">" assocLeft 
+              [ makeBinaryOp Op_Greater ">" assocLeft
                 makeBinaryOp Op_Less "<" assocLeft
                 makeBinaryOp Op_GreaterEq ">=" assocLeft
                 makeBinaryOp Op_LessEq "<=" assocLeft ]
@@ -298,7 +298,7 @@ module ParsecInstance =
               [ makeTypePostfixOp Syn_TypeCheckExpr "is" false ]
 
               // bitwise op
-              [ makeBinaryOp Op_BitwiseAnd "&" assocLeft 
+              [ makeBinaryOp Op_BitwiseAnd "&" assocLeft
                 makeBinaryOp Op_BitwiseOr "|" assocLeft
                 makeBinaryOp Op_BitwiseXor "^" assocLeft ]
 
@@ -314,7 +314,7 @@ module ParsecInstance =
               // type cast
               [ makeTypePostfixOp Syn_TypeCastExpr "as" false ]
             ]
-        
+
         systemOps
         |> List.mapi (fun i fs -> fs |> List.map (fun f -> f (i+1)))
         |> List.collect id
@@ -334,7 +334,7 @@ module ParsecInstance =
         let pname = pIdent_ws
         let ptype = pTypeAnnotOpt
         let pinit = skipChar_ws '=' >>. pExpr
-    
+
         tuple4 pkeyword pname ptype pinit |> withRange4 Syn_VarDeclStmt
 
     let pChoiceStmt =
@@ -364,8 +364,8 @@ module ParsecInstance =
         (preturn >>. pvalue) |> withRange1 Syn_ReturnStmt
 
     let pCompoundStmt =
-        many pStmt 
-        |> betweenBrace 
+        many pStmt
+        |> betweenBrace
         |> withRange1 Syn_CompoundStmt
         |> pullSpace
 
@@ -383,7 +383,7 @@ module ParsecInstance =
     // declaration
     //
     let pModuleIdent =
-        sepBy1 pIdent (skipChar_ws '.') 
+        sepBy1 pIdent (skipChar_ws '.')
         |>> ModuleIdent.ofList
         |> pullSpace
 
@@ -408,7 +408,7 @@ module ParsecInstance =
         let pMethodDecl =
             let pfun = skipString_ws "fun"
             let pname = pIdent_ws
-            let pdeclarator = 
+            let pdeclarator =
                 let paramList =
                     pIdent_ws .>>. pTypeAnnot
                     |> sepByComma
@@ -421,13 +421,13 @@ module ParsecInstance =
                 paramList .>>. retType |>> MethodDeclarator
 
             let pbody = pCompoundStmt
-    
+
             pipe4 (pModifierGroup .>> pfun) pname pdeclarator pbody
                   (fun modifiers name decl body -> MethodDecl(name, modifiers, decl, body))
             |>> FieldOrMethod.Method
             <?> "method declaration"
 
-        let pFieldDecl = 
+        let pFieldDecl =
             pipe4 pModifierGroup pMutability_ws pIdent_ws pTypeAnnot
                   (fun modifiers mut name type' -> FieldDecl(name, modifiers, mut, type'))
             |>> FieldOrMethod.Field

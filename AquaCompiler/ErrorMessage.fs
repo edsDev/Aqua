@@ -31,7 +31,7 @@ let invalidVariableReference rg name =
 
 let invalidFieldReference rg typeName fieldName =
     sprintf "type %s not has member %s" typeName fieldName
-    |> createErrorMessage rg   
+    |> createErrorMessage rg
 
 let invalidExpressionCall rg argTypeList =
     sprintf "expression cannot be called with %O" argTypeList

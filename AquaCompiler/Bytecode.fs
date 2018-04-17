@@ -9,7 +9,7 @@ type Bytecode =
     | StoreLocal of int
     //| StoreField
     //| StoreElement
-    
+
     // stack operation
     | PushI32 of int32
     | PushI64 of int64
@@ -42,7 +42,7 @@ type Bytecode =
     | JumpOnTrue of int
     | JumpOnFalse of int
     | Ret
-    
+
     // type cast
     | CastBool
     | CastI8

@@ -31,11 +31,11 @@ type BinaryOp =
     | Op_Conjunction
     | Op_Disjunction
 
-type ControlFlow = 
+type ControlFlow =
     | Break | Continue
 
 [<RequireQualifiedAccess>]
-type MutabilitySpec = 
+type MutabilitySpec =
     | Mutable | Readonly
 
 [<RequireQualifiedAccess>]
@@ -91,7 +91,7 @@ type TypeIdent =
         | UserTypeIdent(_)
         | FunctionTypeIdent(_) ->
             true
-        | _ -> 
+        | _ ->
             false
 
 and FunctionSignature =
@@ -141,11 +141,11 @@ type Literal =
 type TypedName = string*TypeIdent
 
 type MethodDefinition =
-    | MethodDefinition of name: string * 
+    | MethodDefinition of name: string *
                           modifiers: ModifierGroup *
                           parameters: TypedName list *
                           returnType: TypeIdent
-    
+
     member m.Name =
         match m with | MethodDefinition(x, _, _, _) -> x
     member m.Modifiers =
@@ -161,23 +161,23 @@ type MethodDefinition =
             FunctionSignature(paramPack |> List.map snd, retType)
 
 type FieldDefinition =
-    | FieldDefinition of name: string * 
+    | FieldDefinition of name: string *
                          modifiers: ModifierGroup *
                          mutability: MutabilitySpec *
                          type': TypeIdent
 
     member m.Name =
         match m with | FieldDefinition(x, _, _, _) -> x
-    member m.Modifiers =                        
+    member m.Modifiers =
         match m with | FieldDefinition(_, x, _, _) -> x
-    member m.Mutability =                          
+    member m.Mutability =
         match m with | FieldDefinition(_, _, x, _) -> x
-    member m.Type =                          
+    member m.Type =
         match m with | FieldDefinition(_, _, _, x) -> x
 
 type KlassDefinition =
     | KlassDefinition of name: string *
-                         fields: FieldDefinition list * 
+                         fields: FieldDefinition list *
                          methods: MethodDefinition list
 
     member m.Name =

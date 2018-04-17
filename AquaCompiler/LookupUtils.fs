@@ -18,6 +18,6 @@ module Lookup =
         match src.TryGetValue key with
         | true, x -> Some x
         | false, _ -> None
-    
+
     let iter f (src: Lookup<_, _>) =
         for x in src do f x

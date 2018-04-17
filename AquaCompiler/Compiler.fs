@@ -19,11 +19,11 @@ let parseModuleInfo s = failwith ""
 
 type ModuleLoader(importPathList) =
     let importCache = Dictionary<ModuleIdent, BasicModuleInfo>()
-    
+
     do for path in importPathList do
         if not <| Directory.Exists(path) then
             failwith <| sprintf "import path %s does not exist" path
-     
+
     member m.LoadModule ident =
         if importCache.ContainsKey(ident) then
             Some <| importCache.[ident]
@@ -90,7 +90,7 @@ type TranslationContext =
 
 let createContext env =
     let varLookup =
-        env.CurrentMethod.Parameters 
+        env.CurrentMethod.Parameters
         |> Seq.map (fun (name, t) -> name, VariableLookupItem(name, MutabilitySpec.Readonly, t))
         |> Map.ofSeq
 
@@ -135,12 +135,12 @@ let lookupField ctx typeName fieldName =
     |> Option.bind (function | KlassLookupItem(_, _, table, _) -> table |> Lookup.tryFind fieldName)
 
 let lookupVariable ctx name =
-    ctx.VariableLookup 
+    ctx.VariableLookup
     |> Map.tryFind name
 
 let insideLoopBody ctx =
     ctx.LoopDepth > 0
-    
+
 // context transformer
 //
 
@@ -233,7 +233,7 @@ let updateContext2 f (x1, x2, ctx) =
 
 let updateContext3 f (x1, x2, x3, ctx) =
     x1, x2, x3, f ctx
-        
+
 
 type PendingMethod =
     | PendingMethod of MethodDefinition*SyntaxStmt

@@ -14,7 +14,7 @@ type SyntaxType =
     | Syn_FunctionType  of SynRange*SyntaxType list*SyntaxType
 
     member m.Range =
-        match m with 
+        match m with
         | Syn_SystemType(rg, _)         -> rg
         | Syn_UserType(rg, _)           -> rg
         | Syn_FunctionType(rg, _, _)    -> rg
