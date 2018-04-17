@@ -143,14 +143,22 @@ type TypedName = string*TypeIdent
 type MethodDefinition =
     | MethodDefinition of name: string * 
                           modifiers: ModifierGroup *
-                          signature: FunctionSignature
+                          parameters: TypedName list *
+                          returnType: TypeIdent
     
     member m.Name =
-        match m with | MethodDefinition(x, _, _) -> x
+        match m with | MethodDefinition(x, _, _, _) -> x
     member m.Modifiers =
-        match m with | MethodDefinition(_, x, _) -> x
+        match m with | MethodDefinition(_, x, _, _) -> x
+    member m.Parameters =
+        match m with | MethodDefinition(_, _, x, _) -> x
+    member m.ReturnType =
+        match m with | MethodDefinition(_, _, _, x) -> x
+
     member m.Signature =
-        match m with | MethodDefinition(_, _, x) -> x
+        match m with
+        | MethodDefinition(_, _, paramPack, retType) ->
+            FunctionSignature(paramPack |> List.map snd, retType)
 
 type FieldDefinition =
     | FieldDefinition of name: string * 

@@ -66,14 +66,13 @@ let preprocessMethod lookupProxy (decl: MethodDecl) =
     retType::paramTypeList
     |> translateTypeListLite lookupProxy
     |> Result.map (fun ts ->
-                       let paramsStub = ts |> List.tail
-                       let returnStub = ts |> List.head
+                       let translatedParamTypes = ts |> List.tail
+                       let translatedReturnType = ts |> List.head
                        
-                       let signature = FunctionSignature(paramsStub, returnStub)
-                       let definition = MethodDefinition(decl.Name, decl.Modifiers, signature)
-                       let paramRecord = List.map2 (fun x y -> PendingParameter(x, y)) paramNameList paramsStub
+                       let paramList = List.zip paramNameList translatedParamTypes
+                       let definition = MethodDefinition(decl.Name, decl.Modifiers, paramList, translatedReturnType)
 
-                       PendingMethod(definition, paramRecord, decl.Body))
+                       PendingMethod(definition, decl.Body))
 
 let preprocessKlass lookupType (decl: KlassDecl) =
     let fields, fieldErrors =
@@ -137,4 +136,4 @@ let preprocessModule (loader: ModuleLoader) (decl: CodePage) =
           ImportList = importedModules |> List.map (fun info -> info.ModuleName)
           KlassList = pendingKlassList |> List.map (fun x -> x.Definition) }
 
-    TranslationSession(currentModule, importedModules, pendingKlassList)
+    TranslationSession(currentModule, importedModules), pendingKlassList

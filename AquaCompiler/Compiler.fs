@@ -89,7 +89,10 @@ type TranslationContext =
       ErrorMessages: ErrorMessageList }
 
 let createContext env =
-    let varLookup = Map.empty
+    let varLookup =
+        env.CurrentMethod.Parameters 
+        |> Seq.map (fun (name, t) -> name, VariableLookupItem(name, MutabilitySpec.Readonly, t))
+        |> Map.ofSeq
 
     { Environment = env
       LoopDepth = 0
@@ -232,17 +235,13 @@ let updateContext3 f (x1, x2, x3, ctx) =
     x1, x2, x3, f ctx
         
 
-type PendingParameter =
-    | PendingParameter of string*TypeIdent
 type PendingMethod =
-    | PendingMethod of MethodDefinition*PendingParameter list*SyntaxStmt
+    | PendingMethod of MethodDefinition*SyntaxStmt
 
     member m.Definition =
-        match m with PendingMethod(x, _, _) -> x
-    member m.ParameterList =
-        match m with PendingMethod(_, x, _) -> x
+        match m with PendingMethod(x, _) -> x
     member m.Body =
-        match m with PendingMethod(_, _, x) -> x
+        match m with PendingMethod(_, x) -> x
 
 type PendingKlass =
     | PendingKlass of KlassDefinition*PendingMethod list
@@ -252,7 +251,7 @@ type PendingKlass =
     member m.MethodList =
         match m with PendingKlass(_, x) -> x
 
-type TranslationSession(currentModule: BasicModuleInfo, importModules: BasicModuleInfo list, pendingKlassList: PendingKlass list) =
+type TranslationSession(currentModule: BasicModuleInfo, importModules: BasicModuleInfo list) =
     let errorList = ResizeArray<ErrorMessage>()
 
     member m.CurrentModule =

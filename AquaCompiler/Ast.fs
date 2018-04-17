@@ -30,7 +30,7 @@ let rec getAstExprType expr =
     | Ast_LiteralExpr(literal)          -> literal.Type
     | Ast_NameAccessExpr(t, _, _)       -> t
     | Ast_MemberAccessExpr(t, _, _)     -> t
-    | Ast_TypeCheckExpr(_, t)           -> t
+    | Ast_TypeCheckExpr(_, _)           -> kBoolType
     | Ast_TypeCastExpr(_, t)            -> t
     | Ast_InvocationExpr(callable, _)   ->
         match callable with
@@ -50,3 +50,12 @@ type AstStmt =
     | Ast_ControlFlowStmt   of ControlFlow
     | Ast_ReturnStmt        of AstExpr option
     | Ast_CompoundStmt      of AstStmt list
+
+//
+//
+
+type AstMethod =
+    | AstMethod of MethodDefinition*AstStmt
+
+type AstKlass =
+    | AstKlass of KlassDefinition*AstMethod list

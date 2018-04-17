@@ -5,6 +5,7 @@ open Aqua.Syntax
 open Aqua.Ast
 open Aqua.ErrorMessage
 open Aqua.Compiler
+open Aqua.LookupUtils
 
 let existImplicitConversion ctx srcType destType =
     srcType=destType
@@ -339,17 +340,48 @@ let rec translateStmt ctx stmt =
     | Syn_ReturnStmt(rg, maybeExpr) -> translateReturnStmt rg maybeExpr
     | Syn_CompoundStmt(rg, children) -> translateCompoundStmt rg children
 
-let translateMethod env (item: PendingMethod) =
-    let result, ctx = translateStmt (createContext env) item.Body
+let translateMethod env body =
+    let result, ctx = translateStmt (createContext env) body
     
     match result with
     | Some s ->
-        Ok <| s
+        Ok <| AstMethod(env.CurrentMethod, s)
     | None ->
         Error <| ctx.ErrorMessages
 
-let translateKlass (item: PendingKlass) =
-    ()
+let translateModule (session: TranslationSession) (klassList: PendingKlass list) =
+    let def2Lookup moduleIdent (klassDef: KlassDefinition) =
+        let fieldLookup = Lookup.create <| seq {
+            for field in klassDef.Fields do
+                yield field.Name, field
+        }
+        let methodLookup = Lookup.create <| seq {
+            for method in klassDef.Methods do
+                yield method.Name, List.singleton method
+        }
 
-let translateModule (session: TranslationSession) =
-    ()
+        KlassLookupItem(moduleIdent, klassDef, fieldLookup, methodLookup)
+    
+    let typeLookup = Lookup.create <| seq {
+            for klass in session.CurrentModule.KlassList do
+                yield klass.Name, def2Lookup session.CurrentModule.ModuleName klass
+        }
+
+    let klass = Seq.toList <| seq {
+        for PendingKlass(klassDef, methodList) in klassList do
+            let methods = Seq.toList <| seq {
+                for PendingMethod(methodDef, body) in methodList do
+                    let env = { CurrentModule = session.CurrentModule.ModuleName
+                                CurrentKlass = klassDef
+                                CurrentMethod = methodDef
+                                TypeLookup = typeLookup }
+
+                    match translateMethod env body with
+                    | Ok result -> yield result
+                    | Error msgs -> session.AppendError(msgs)
+            }
+
+            yield AstKlass(klassDef, methods)
+        }
+
+    klass

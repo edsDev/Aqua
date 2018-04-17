@@ -4,7 +4,7 @@ open Aqua.Syntax
 open Aqua.Parser
 open Aqua.Compiler
 open Aqua.Preprocessor
-open Aqua
+open Aqua.TypeChecker
 
 // 
 // Reference Lookup Path: string list
@@ -22,29 +22,28 @@ let main argv =
         //import std
         class Program {
             public static fun foo(x: int) -> bool {
-                var x = 1;
                 val y = 2;
-                x = y = 42;
-                break
 
-                if ((x==42) is aha) {
+                if ((x==42) is bool) {
                     return true;
                 }
                 else {
                     return false;
                 }
 
-                return 42
+                return (y is int);
             }
 
             // line comment
-            public static fun sum(x: int, y: int) -> bool {
+            public static fun sum(x: int, y: int) -> int {
                 return x + /* block comment */ y;
             }
 
+            /*
             public static fun apply(f: (int, int) -> int, x: int, y: int) -> int {
                 return f(x, y) + sum(x, y) + g(x, y) + z;
             }
+            */
         }
 
         /*
@@ -71,11 +70,15 @@ let main argv =
         | Success t -> t
         | Failure e -> printfn "%s" e; failwith e
     
-    let session =
+    // preprocess
+    let session, pendingKlassList =
         let loader = ModuleLoader([])
         preprocessModule loader codePage
 
-    printfn "%O" codePage
+    let astKlassList =
+        translateModule session pendingKlassList
+
+    printfn "%O" astKlassList
     Console.ReadKey() |> ignore
 
     0 // return an integer exit code

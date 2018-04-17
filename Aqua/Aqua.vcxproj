@@ -141,9 +141,6 @@
     <ProjectReference Include="..\..\edslib\edslib\edslib.vcxproj">
       <Project>{87e3cade-8749-4988-b3e6-0c9f07e58828}</Project>
     </ProjectReference>
-    <ProjectReference Include="..\..\Lolita\Lolita\Lolita.vcxproj">
-      <Project>{d97b09ee-cd21-4ecb-ac07-1b010cf59867}</Project>
-    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
