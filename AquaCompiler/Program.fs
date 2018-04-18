@@ -5,6 +5,9 @@ open Aqua.Parser
 open Aqua.Compiler
 open Aqua.Preprocessor
 open Aqua.TypeChecker
+open Aqua.Ast
+open Aqua.CodeGenerator
+open Aqua.Bytecode
 
 //
 // Reference Lookup Path: string list
@@ -58,21 +61,34 @@ let main argv =
         */
     """
 
+    // module loader
+    let loader = ModuleLoader([])
+
     // parse
     let codePage =
         match parseCodePage sampleCode with
-        | Success t -> t
-        | Failure e -> printfn "%s" e; failwith e
+        | Ok t -> t
+        | Error e -> printfn "%s" e; failwith e
 
-    // preprocess
+    // preprocessing
     let session, pendingKlassList =
-        let loader = ModuleLoader([])
         preprocessModule loader codePage
 
+    // type checking
     let astKlassList =
         translateModule session pendingKlassList
 
-    printfn "%O" astKlassList
+    // code generation
+    let ss = Seq.toList <| seq {
+        for AstKlass(klassDef, methodList) in astKlassList do
+            for AstMethod(methodDef, body) in methodList do
+                let codeAcc = CodeGen.createEmpty ()
+                
+                compileStmt () () codeAcc body
+                yield methodDef.Name, codeAcc.ToArray()
+    }
+
+    printfn "%A" ss
     Console.ReadKey() |> ignore
 
     0 // return an integer exit code

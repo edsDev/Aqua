@@ -463,11 +463,7 @@ module ParsecInstance =
 
 // interface
 //
-type Result =
-    | Success of CodePage
-    | Failure of string
-
 let parseCodePage s =
     match runParserOnString ParsecInstance.pCodePage () "" s with
-    | ParserResult.Success(result, _, _) -> Success result
-    | ParserResult.Failure(error, _, _) -> Failure error
+    | ParserResult.Success(result, _, _) -> Result.Ok result
+    | ParserResult.Failure(error, _, _) -> Result.Error error

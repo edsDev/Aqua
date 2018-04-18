@@ -2,11 +2,10 @@
 
 open Aqua.Language
 open Aqua.Ast
-open Aqua.Compiler
 open Aqua.Bytecode
 
 let rec compileExpr env re codeAcc expr =
-    let emitBytecode = BytecodeAccumulator.appendBytecode codeAcc
+    let emitBytecode = CodeGen.appendBytecode codeAcc
     let emitExpr = compileExpr env re codeAcc
 
     match expr with
@@ -27,11 +26,11 @@ let rec compileExpr env re codeAcc expr =
     | Ast_MemberAccessExpr(_, _, _) ->
         ()
     | Ast_TypeCheckExpr(child, testType) ->
-        emitExpr <| child
-
         let childType = getAstExprType child
 
         if childType.IsReferenceType then
+            emitExpr <| child
+            
             emitBytecode <| CastObj(testType.ToString())
             emitBytecode <| CastBool
         else
@@ -57,13 +56,27 @@ let rec compileExpr env re codeAcc expr =
     | Ast_InvocationExpr(callee, args) ->
         args |> List.iter (fun x -> emitExpr <| x)
     | Ast_BinaryExpr(type', op, lhs, rhs) ->
-        ()
+        emitExpr lhs
+        emitExpr rhs
+
+        match op with
+        | Op_Plus ->
+            emitBytecode <| Add
+        | Op_Minus ->
+            emitBytecode <| Sub
+        | Op_Asterisk ->
+            emitBytecode <| Mul
+        | Op_Slash ->
+            emitBytecode <| Div
+        | Op_Equal ->
+            emitBytecode <| Eq
+        | _ ->
+            failwith ""
 
 let rec compileStmt env re codeAcc stmt =
-    let emitBytecode = BytecodeAccumulator.appendBytecode codeAcc
+    let emitBytecode = CodeGen.appendBytecode codeAcc
     let emitStmt = compileStmt env re codeAcc
     let emitExpr = compileExpr env re codeAcc
-
 
     match stmt with
     | Ast_ExpressionStmt(expr) ->
@@ -72,9 +85,31 @@ let rec compileStmt env re codeAcc stmt =
     | Ast_VarDeclStmt(mut, name, t, init) ->
         ()
     | Ast_ChoiceStmt(pred, pos, negOpt) ->
-        ()
+        emitExpr pred
+        let patchNegJump = CodeGen.appendDummy codeAcc
+        emitStmt pos
+
+        match negOpt with
+        | Some neg ->
+            let patchPosJump = CodeGen.appendDummy codeAcc
+            patchNegJump <| JumpOnFalse (CodeGen.extractNextIndex codeAcc)
+            emitStmt neg
+            patchPosJump <| Jump (CodeGen.extractNextIndex codeAcc)
+
+        | None ->
+            patchNegJump <| JumpOnFalse (CodeGen.extractNextIndex codeAcc)
+            
+
     | Ast_WhileStmt(pred, body) ->
-        ()
+        let startIndex = CodeGen.extractNextIndex codeAcc
+
+        emitExpr pred
+        let patchNegJump = CodeGen.appendDummy codeAcc
+        emitStmt body
+        emitBytecode <| Jump startIndex
+
+        patchNegJump <| JumpOnFalse (CodeGen.extractNextIndex codeAcc)
+
     | Ast_ControlFlowStmt(mode) ->
         ()
     | Ast_ReturnStmt(exprOpt) ->

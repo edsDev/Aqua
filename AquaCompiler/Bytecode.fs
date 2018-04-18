@@ -1,6 +1,8 @@
 ﻿module Aqua.Bytecode
 
 type Bytecode =
+    | Nop
+
     | LoadArg of int
     | LoadLocal of int
     //| LoadField
@@ -37,6 +39,9 @@ type Bytecode =
     | Xor
     | Rev
 
+    // comparison
+    | Eq
+
     // control flow
     | Jump of int
     | JumpOnTrue of int
@@ -68,13 +73,19 @@ type Bytecode =
 
 type BytecodeAccumulator = ResizeArray<Bytecode>
 
-module BytecodeAccumulator =
+module CodeGen =
     let createEmpty () =
         BytecodeAccumulator()
+
+    let extractNextIndex (acc: BytecodeAccumulator) =
+        acc.Count
 
     let appendBytecode (acc: BytecodeAccumulator) code =
         acc.Add(code)
 
-    let extractPosition (acc: BytecodeAccumulator) =
-        acc.Count
+    let appendDummy (acc: BytecodeAccumulator) =
+        let index = extractNextIndex acc
+
+        acc.Add(Nop)
+        fun code -> acc.[index] <- code
 
