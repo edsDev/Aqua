@@ -4,27 +4,36 @@ open Aqua.Language
 open Aqua.Ast
 open Aqua.Bytecode
 
-let rec compileExpr env re codeAcc expr =
-    let emitBytecode = CodeGen.appendBytecode codeAcc
-    let emitExpr = compileExpr env re codeAcc
+type CodeGenContext =
+    { x: int }
+
+let rec compileExpr ctx codeBuf expr =
+    let emitBytecode = CodeGen.appendBytecode codeBuf
+    let emitExpr = compileExpr ctx codeBuf
 
     match expr with
     | Ast_InstanceExpr(t) ->
         emitBytecode <| LoadArg 0
+
     | Ast_LiteralExpr(literal) ->
         match literal with
         | BoolConst(x) ->
             emitBytecode <| PushI32(if x then 1 else 0)
         | IntConst(x) ->
             emitBytecode <| PushI32(x)
+
     | Ast_NameAccessExpr(_, _, var) ->
         match var with
-        | VariableLocal name ->
-            emitBytecode <| LoadLocal 0
+        | VariableArgument id ->
+            emitBytecode <| LoadArg id
+        | VariableLocal id ->
+            emitBytecode <| LoadLocal id
         | VariableField name ->
-            ()
+            failwith "not implemented"
+
     | Ast_MemberAccessExpr(_, _, _) ->
-        ()
+        failwith "not implemented"
+
     | Ast_TypeCheckExpr(child, testType) ->
         let childType = getAstExprType child
 
@@ -39,6 +48,7 @@ let rec compileExpr env re codeAcc expr =
                 emitBytecode <| PushI32(if c1=c2 then 1 else 0)
             | _ ->
                 emitBytecode <| PushI32(0)
+
     | Ast_TypeCastExpr(child, targetType) ->
         emitExpr <| child
 
@@ -50,11 +60,13 @@ let rec compileExpr env re codeAcc expr =
                 | SystemTypeIdent(Bool)  -> CastBool
                 | SystemTypeIdent(Int)   -> CastI32
                 | SystemTypeIdent(Float) -> CastF32
-                | _ -> failwith ""
+                | _ -> failwith "not implemented"
 
             emitBytecode <| opcode
+
     | Ast_InvocationExpr(callee, args) ->
         args |> List.iter (fun x -> emitExpr <| x)
+
     | Ast_BinaryExpr(type', op, lhs, rhs) ->
         emitExpr lhs
         emitExpr rhs
@@ -71,47 +83,50 @@ let rec compileExpr env re codeAcc expr =
         | Op_Equal ->
             emitBytecode <| Eq
         | _ ->
-            failwith ""
+            failwith "not implemented"
 
-let rec compileStmt env re codeAcc stmt =
-    let emitBytecode = CodeGen.appendBytecode codeAcc
-    let emitStmt = compileStmt env re codeAcc
-    let emitExpr = compileExpr env re codeAcc
+let rec compileStmt ctx codeBuf stmt =
+    let emitBytecode = CodeGen.appendBytecode codeBuf
+    let emitStmt = compileStmt ctx codeBuf
+    let emitExpr = compileExpr ctx codeBuf
 
     match stmt with
     | Ast_ExpressionStmt(expr) ->
         emitExpr expr
         emitBytecode <| Pop
-    | Ast_VarDeclStmt(mut, name, t, init) ->
-        ()
+
+    | Ast_VarDeclStmt(id, t, init) ->
+        emitExpr init
+        emitBytecode <| StoreLocal id
+
     | Ast_ChoiceStmt(pred, pos, negOpt) ->
         emitExpr pred
-        let patchNegJump = CodeGen.appendDummy codeAcc
+        let patchNegJump = CodeGen.appendDummy codeBuf
         emitStmt pos
 
         match negOpt with
         | Some neg ->
-            let patchPosJump = CodeGen.appendDummy codeAcc
-            patchNegJump <| JumpOnFalse (CodeGen.extractNextIndex codeAcc)
+            let patchPosJump = CodeGen.appendDummy codeBuf
+            patchNegJump <| JumpOnFalse (CodeGen.extractNextIndex codeBuf)
             emitStmt neg
-            patchPosJump <| Jump (CodeGen.extractNextIndex codeAcc)
+            patchPosJump <| Jump (CodeGen.extractNextIndex codeBuf)
 
         | None ->
-            patchNegJump <| JumpOnFalse (CodeGen.extractNextIndex codeAcc)
+            patchNegJump <| JumpOnFalse (CodeGen.extractNextIndex codeBuf)
             
-
     | Ast_WhileStmt(pred, body) ->
-        let startIndex = CodeGen.extractNextIndex codeAcc
+        let startIndex = CodeGen.extractNextIndex codeBuf
 
         emitExpr pred
-        let patchNegJump = CodeGen.appendDummy codeAcc
+        let patchNegJump = CodeGen.appendDummy codeBuf
         emitStmt body
         emitBytecode <| Jump startIndex
 
-        patchNegJump <| JumpOnFalse (CodeGen.extractNextIndex codeAcc)
+        patchNegJump <| JumpOnFalse (CodeGen.extractNextIndex codeBuf)
 
     | Ast_ControlFlowStmt(mode) ->
         ()
+
     | Ast_ReturnStmt(exprOpt) ->
         match exprOpt with
         | Some expr -> emitExpr expr
@@ -121,3 +136,5 @@ let rec compileStmt env re codeAcc stmt =
 
     | Ast_CompoundStmt(children) ->
         List.iter emitStmt children
+
+let compileModule = ()

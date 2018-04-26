@@ -57,12 +57,12 @@
   <ItemGroup>
     <Compile Include="AssemblyInfo.fs" />
     <Compile Include="ResultUtils.fs" />
-    <Compile Include="LookupUtils.fs" />
+    <Compile Include="CollectionUtils.fs" />
     <Compile Include="Language.fs" />
     <Compile Include="Syntax.fs" />
     <Compile Include="Ast.fs" />
-    <Compile Include="Parser.fs" />
     <Compile Include="Compiler.fs" />
+    <Compile Include="Parser.fs" />
     <Compile Include="ErrorMessage.fs" />
     <Compile Include="Preprocessor.fs" />
     <Compile Include="TypeChecker.fs" />
@@ -81,6 +81,9 @@
     </Reference>
     <Reference Include="FSharp.Core">
       <HintPath>..\packages\FSharp.Core.4.3.2\lib\net45\FSharp.Core.dll</HintPath>
+    </Reference>
+    <Reference Include="FSharpx.Collections">
+      <HintPath>..\packages\FSharpx.Collections.1.17.0\lib\net40\FSharpx.Collections.dll</HintPath>
     </Reference>
     <Reference Include="mscorlib" />
     <Reference Include="System" />

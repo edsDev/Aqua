@@ -3,6 +3,7 @@
 open Aqua.Language
 open Aqua.Syntax
 open FParsec
+open Aqua.Compiler
 
 let kLongestCommentLength = 10000
 
@@ -463,7 +464,8 @@ module ParsecInstance =
 
 // interface
 //
-let parseCodePage s =
+
+let parseModule s =
     match runParserOnString ParsecInstance.pCodePage () "" s with
-    | ParserResult.Success(result, _, _) -> Result.Ok result
-    | ParserResult.Failure(error, _, _) -> Result.Error error
+    | ParserResult.Success(result, _, _) -> Result.Ok <| result
+    | ParserResult.Failure(error, _, _)  -> Result.Error <| ParsingError error

@@ -1,16 +1,21 @@
 ﻿module Aqua.Compiler
 
-open Aqua.LookupUtils
+open Aqua.CollectionUtils
 open Aqua.Language
 open Aqua.Syntax
 open Aqua.Ast
 open System.IO
 open System.Collections.Generic
+open FSharpx.Collections
 
 type ErrorMessage =
     { ReferenceRange: SynRange; Message: string; }
 
 type ErrorMessageList = ErrorMessage list
+
+type CompilationError =
+    | ParsingError of string
+    | TranslationError of ArrayView<ErrorMessage>
 
 //
 // Translation Session
@@ -49,11 +54,11 @@ type ModuleLoader(importPathList) =
 //
 
 // <field name> -> <definition>
-type FieldLookupTable = Lookup<string, FieldDefinition>
+type FieldLookupTable = DictView<string, FieldDefinition>
 // <function name> -> <definition list>
-type MethodLookupTable = Lookup<string, MethodDefinition list>
+type MethodLookupTable = DictView<string, MethodDefinition list>
 
-type TypeLookupItem =
+type TypeAccessRecord =
     //| EnumLookupItem of EnumDefinition
     | KlassLookupItem of ModuleIdent*KlassDefinition*FieldLookupTable*MethodLookupTable
 
@@ -62,17 +67,11 @@ type TypeLookupItem =
         | KlassLookupItem(moduleName, def, _, _) -> UserTypeIdent(moduleName, def.Name)
 
 // <type name> -> <definition>
-type TypeLookupTable = Lookup<string, TypeLookupItem>
+type TypeLookupTable = DictView<string, TypeAccessRecord>
 
-type VariableLookupItem =
-    | VariableLookupItem of string*MutabilitySpec*TypeIdent
-
-    member m.Name =
-        match m with | VariableLookupItem(x, _, _) -> x
-    member m.Mutability =
-        match m with | VariableLookupItem(_, x, _) -> x
-    member m.Type =
-        match m with | VariableLookupItem(_, _, x) -> x
+type NameAccessRecord =
+    | ArgumentLookupItem of int*string*TypeIdent
+    | VariableLookupItem of int*string*TypeIdent*MutabilitySpec
 
 type TranslationEnvironment =
     { CurrentModule: ModuleIdent
@@ -85,17 +84,25 @@ type TranslationContext =
     { Environment: TranslationEnvironment
 
       LoopDepth: int
-      VariableLookup: Map<string, VariableLookupItem>
+      VariableList: PersistentVector<AstVariableDecl>
+      VariableLookup: Map<string, NameAccessRecord>
       ErrorMessages: ErrorMessageList }
 
 let createContext env =
     let varLookup =
+        let offset = 
+            match env.CurrentMethod.LifetimeType with
+            | LifetimeModifier.Static -> 0
+            | LifetimeModifier.Instance -> 1
+
         env.CurrentMethod.Parameters
-        |> Seq.map (fun (name, t) -> name, VariableLookupItem(name, MutabilitySpec.Readonly, t))
+        |> Seq.mapi (fun i (name, t) -> name, ArgumentLookupItem(i + offset, name, t))
         |> Map.ofSeq
 
     { Environment = env
+
       LoopDepth = 0
+      VariableList = PersistentVector.empty
       VariableLookup = varLookup
       ErrorMessages = [] }
 
@@ -119,20 +126,23 @@ let getReturnType ctx =
     (getCurrentMethod ctx).Signature.ReturnType
 
 let isInstanceContext ctx =
-    (getCurrentMethod ctx).Modifiers.LifetimeType <> LifetimeModifier.Static
+    (getCurrentMethod ctx).LifetimeType <> LifetimeModifier.Static
+
+let getNextVarId ctx =
+    PersistentVector.length ctx.VariableList
 
 let lookupType ctx name =
      ctx.Environment.TypeLookup
-     |> Lookup.tryFind name
+     |> DictView.tryFind name
 
 let lookupMethod ctx typeName funcName =
     lookupType ctx typeName
-    |> Option.bind (function | KlassLookupItem(_, _, _, table) -> table |> Lookup.tryFind funcName)
+    |> Option.bind (function | KlassLookupItem(_, _, _, table) -> table |> DictView.tryFind funcName)
     |> Option.defaultValue []
 
 let lookupField ctx typeName fieldName =
     lookupType ctx typeName
-    |> Option.bind (function | KlassLookupItem(_, _, table, _) -> table |> Lookup.tryFind fieldName)
+    |> Option.bind (function | KlassLookupItem(_, _, table, _) -> table |> DictView.tryFind fieldName)
 
 let lookupVariable ctx name =
     ctx.VariableLookup
@@ -154,8 +164,12 @@ let exitLoopBody ctx =
     { ctx with LoopDepth = ctx.LoopDepth - 1 }
 
 let declareVariable name mut type' ctx =
-    let var = VariableLookupItem(name, mut, type')
-    { ctx with VariableLookup = ctx.VariableLookup |> Map.add name var }
+    let id = PersistentVector.length ctx.VariableList
+    let decl = AstVariableDecl(name, type', mut)
+    let record = VariableLookupItem(id, name, type', mut)
+
+    { ctx with VariableList = ctx.VariableList |> PersistentVector.conj decl
+               VariableLookup = ctx.VariableLookup |> Map.add name record }
 
 let appendError msg ctx =
     { ctx with ErrorMessages = msg::ctx.ErrorMessages }
@@ -251,17 +265,8 @@ type PendingKlass =
     member m.MethodList =
         match m with PendingKlass(_, x) -> x
 
-type TranslationSession(currentModule: BasicModuleInfo, importModules: BasicModuleInfo list) =
-    let errorList = ResizeArray<ErrorMessage>()
-
-    member m.CurrentModule =
-        currentModule
-
-    member m.HasError =
-        errorList.Count > 0
-
-    member m.AppendError msgList =
-        errorList.AddRange(msgList)
-
-    member m.LookupType name =
-        Some <| SystemTypeIdent(Int)
+type TranslationSession = 
+    { CurrentModule: BasicModuleInfo
+      ImportedModules: BasicModuleInfo list
+      
+      PendingKlassList: PendingKlass list }

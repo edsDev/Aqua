@@ -1,6 +1,7 @@
 ﻿module Aqua.Language
 
 open System
+open CollectionUtils
 
 type BuiltinTypeCategory =
     | Unit
@@ -155,6 +156,11 @@ type MethodDefinition =
     member m.ReturnType =
         match m with | MethodDefinition(_, _, _, x) -> x
 
+    member m.AccessType = 
+        m.Modifiers.AccessType
+    member m.LifetimeType = 
+        m.Modifiers.LifetimeType
+
     member m.Signature =
         match m with
         | MethodDefinition(_, _, paramPack, retType) ->
@@ -200,7 +206,6 @@ type EnumDefinition =
 *)
 
 type BasicModuleInfo =
-    { ModuleName: ModuleIdent;
-      ImportList: ModuleIdent list;
-      //EnumList: EnumDefinition list;
-      KlassList: KlassDefinition list; }
+    { ModuleName: ModuleIdent
+      ImportList: ModuleIdent list
+      KlassList: KlassDefinition list }

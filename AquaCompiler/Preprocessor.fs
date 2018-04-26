@@ -1,7 +1,7 @@
 ﻿module Aqua.Preprocessor
 
 open Aqua.ResultUtils
-open Aqua.LookupUtils
+open Aqua.CollectionUtils
 open Aqua.Language
 open Aqua.Syntax
 open Aqua.Ast
@@ -93,21 +93,23 @@ let preprocessKlass lookupType (decl: KlassDecl) =
     else
         Error <| List.append (fieldErrors |> List.collect id) (methodErrors |> List.collect id)
 
-
-let preprocessModule (loader: ModuleLoader) (decl: CodePage) =
-    // 1. prepare type lookup and construct translation session
-    // 2.
+let preprocessModule (loader: ModuleLoader) decl =
+    // TODO: remove mutable buffer
+    let errorBuffer = ResizeArray()
 
     let currentModuleName =
         decl.ModuleInfo.Identifier
 
     let importedModules =
-        decl.ImportList
-        |> List.map (fun decl -> loader.LoadModule decl.Identifier)
-        |> List.choose id
+        List.ofSeq <| seq {
+            for m in decl.ImportList do
+                match loader.LoadModule m.Identifier with
+                | Some info -> yield info
+                | None -> failwith ""
+        }
 
     let typeIdentLookup =
-        Lookup.create <| seq {
+        DictView.ofSeq <| seq {
             // internal types
             for klassInfo in decl.KlassList do
                 yield klassInfo.Name, UserTypeIdent(currentModuleName, klassInfo.Name)
@@ -119,7 +121,7 @@ let preprocessModule (loader: ModuleLoader) (decl: CodePage) =
         }
 
     let lookupProxy name =
-        typeIdentLookup |> Lookup.tryFind name
+        typeIdentLookup |> DictView.tryFind name
 
     let pendingKlassList =
         Seq.toList <| seq {
@@ -128,12 +130,19 @@ let preprocessModule (loader: ModuleLoader) (decl: CodePage) =
                 | Ok record ->
                     yield record
                 | Error msgs ->
-                    () // session.AppendError(msgs)
+                    errorBuffer.AddRange(msgs)
         }
 
     let currentModule =
         { ModuleName = currentModuleName
-          ImportList = importedModules |> List.map (fun info -> info.ModuleName)
+          ImportList = importedModules |> List.map (fun x -> x.ModuleName)
           KlassList = pendingKlassList |> List.map (fun x -> x.Definition) }
 
-    TranslationSession(currentModule, importedModules), pendingKlassList
+
+    if errorBuffer.Count = 0 then
+        Ok <| { CurrentModule = currentModule
+                ImportedModules = importedModules
+                
+                PendingKlassList = pendingKlassList }
+    else
+        Error <| TranslationError errorBuffer

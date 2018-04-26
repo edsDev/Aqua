@@ -119,7 +119,7 @@ type ImportDecl =
     member m.Identifier =
         match m with | ImportDecl(_, x) -> x
 
-type CodePage =
+type SyntaxCodePage =
     { Path        : string
       ModuleInfo  : ModuleDecl
       ImportList  : ImportDecl list

@@ -1,6 +1,7 @@
 ﻿module Aqua.Ast
 
 open Aqua.Language
+open FSharpx.Collections
 
 // AstExpr
 //
@@ -16,11 +17,11 @@ type AstExpr =
     | Ast_BinaryExpr        of TypeIdent*BinaryOp*AstExpr*AstExpr
 
 and VariableReference =
-    | VariableLocal of string
+    | VariableArgument of int
+    | VariableLocal of int
     | VariableField of string
 
 and CallableReference =
-    | CallableFunction of MethodDefinition
     | CallableMethod of string*MethodDefinition
     | CallableExpression of AstExpr*FunctionSignature
 
@@ -34,8 +35,7 @@ let rec getAstExprType expr =
     | Ast_TypeCastExpr(_, t)            -> t
     | Ast_InvocationExpr(callable, _)   ->
         match callable with
-        | CallableFunction(d)       -> d.Signature.ReturnType
-        | CallableMethod(_, d)      -> d.Signature.ReturnType
+        | CallableMethod(_, d)      -> d.ReturnType
         | CallableExpression(_, s)  -> s.ReturnType
     | Ast_BinaryExpr(t, _, _, _)        -> t
 
@@ -44,7 +44,7 @@ let rec getAstExprType expr =
 
 type AstStmt =
     | Ast_ExpressionStmt    of AstExpr
-    | Ast_VarDeclStmt       of MutabilitySpec*string*TypeIdent*AstExpr
+    | Ast_VarDeclStmt       of int*TypeIdent*AstExpr
     | Ast_ChoiceStmt        of AstExpr*AstStmt*AstStmt option
     | Ast_WhileStmt         of AstExpr*AstStmt
     | Ast_ControlFlowStmt   of ControlFlow
@@ -54,8 +54,11 @@ type AstStmt =
 //
 //
 
+type AstVariableDecl =
+    | AstVariableDecl of string*TypeIdent*MutabilitySpec
+
 type AstMethod =
-    | AstMethod of MethodDefinition*AstStmt
+    | AstMethod of MethodDefinition*PersistentVector<AstVariableDecl>*AstStmt
 
 type AstKlass =
     | AstKlass of KlassDefinition*AstMethod list

@@ -5,7 +5,7 @@ open Aqua.Syntax
 open Aqua.Ast
 open Aqua.ErrorMessage
 open Aqua.Compiler
-open Aqua.LookupUtils
+open Aqua.CollectionUtils
 
 let existImplicitConversion ctx srcType destType =
     srcType=destType
@@ -121,8 +121,10 @@ let rec translateExpr ctx expr =
 
     let translateNameAccessExpr rg name =
         match lookupVariable ctx name with
-        | Some(VariableLookupItem(_, mut, t)) ->
-            ctx |> makeEvalResult (Ast_NameAccessExpr(t, mut, VariableLocal name))
+        | Some (ArgumentLookupItem(id, _, t)) ->
+            ctx |> makeEvalResult (Ast_NameAccessExpr(t, MutabilitySpec.Readonly, VariableArgument id))
+        | Some (VariableLookupItem(id, _, t, mut)) ->
+            ctx |> makeEvalResult (Ast_NameAccessExpr(t, mut, VariableLocal id))
         | None ->
             ctx |> makeEvalError (invalidVariableReference rg name)
 
@@ -271,6 +273,7 @@ let rec translateStmt ctx stmt =
             |> bindEvalResult
                    (fun newCtx value ->
                         let initType = getAstExprType value
+                        let id = getNextVarId newCtx
 
                         match typeAnnot with
                         | Some t ->
@@ -279,11 +282,11 @@ let rec translateStmt ctx stmt =
                                    (fun newCtx2 declType ->
                                         declareVariable name mut declType newCtx2
                                         |> if existImplicitConversion newCtx initType declType
-                                           then makeEvalResult (Ast_VarDeclStmt(mut, name, declType, value))
+                                           then makeEvalResult (Ast_VarDeclStmt(id, declType, value))
                                            else makeEvalError (invalidImpilicitConversion rg initType declType))
                         | None ->
                             declareVariable name mut initType newCtx
-                            |> makeEvalResult (Ast_VarDeclStmt(mut, name, initType, value)))
+                            |> makeEvalResult (Ast_VarDeclStmt(id, initType, value)))
 
     let translateChoiceStmt rg pred pBranch nBranch =
         ensureExprType pred kBoolType ctx
@@ -345,30 +348,34 @@ let translateMethod env body =
 
     match result with
     | Some s ->
-        Ok <| AstMethod(env.CurrentMethod, s)
+        Ok <| AstMethod(env.CurrentMethod, ctx.VariableList, s)
     | None ->
         Error <| ctx.ErrorMessages
 
-let translateModule (session: TranslationSession) (klassList: PendingKlass list) =
+let createTypeLookup session =
     let def2Lookup moduleIdent (klassDef: KlassDefinition) =
-        let fieldLookup = Lookup.create <| seq {
+        let fieldLookup = DictView.ofSeq <| seq {
             for field in klassDef.Fields do
                 yield field.Name, field
         }
-        let methodLookup = Lookup.create <| seq {
+        let methodLookup = DictView.ofSeq <| seq {
             for method in klassDef.Methods do
                 yield method.Name, List.singleton method
         }
 
         KlassLookupItem(moduleIdent, klassDef, fieldLookup, methodLookup)
 
-    let typeLookup = Lookup.create <| seq {
-            for klass in session.CurrentModule.KlassList do
-                yield klass.Name, def2Lookup session.CurrentModule.ModuleName klass
-        }
+    DictView.ofSeq <| seq {
+        for klass in session.CurrentModule.KlassList do
+            yield klass.Name, def2Lookup session.CurrentModule.ModuleName klass
+    }
+
+let translateModule session =
+    let errorBuffer = ResizeArray()
+    let typeLookup = createTypeLookup session
 
     let klass = Seq.toList <| seq {
-        for PendingKlass(klassDef, methodList) in klassList do
+        for PendingKlass(klassDef, methodList) in session.PendingKlassList do
             let methods = Seq.toList <| seq {
                 for PendingMethod(methodDef, body) in methodList do
                     let env = { CurrentModule = session.CurrentModule.ModuleName
@@ -378,10 +385,13 @@ let translateModule (session: TranslationSession) (klassList: PendingKlass list)
 
                     match translateMethod env body with
                     | Ok result -> yield result
-                    | Error msgs -> session.AppendError(msgs)
+                    | Error msgs -> errorBuffer.AddRange(msgs)
             }
 
             yield AstKlass(klassDef, methods)
         }
-
-    klass
+    
+    if errorBuffer.Count = 0 then
+        Ok <| klass
+    else
+        Error <| TranslationError errorBuffer

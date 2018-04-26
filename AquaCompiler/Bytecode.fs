@@ -71,19 +71,19 @@ type Bytecode =
     | Call of string
     //| CallVirtual
 
-type BytecodeAccumulator = ResizeArray<Bytecode>
+type CodeGenBuffer = ResizeArray<Bytecode>
 
 module CodeGen =
     let createEmpty () =
-        BytecodeAccumulator()
+        CodeGenBuffer()
 
-    let extractNextIndex (acc: BytecodeAccumulator) =
+    let extractNextIndex (acc: CodeGenBuffer) =
         acc.Count
 
-    let appendBytecode (acc: BytecodeAccumulator) code =
+    let appendBytecode (acc: CodeGenBuffer) code =
         acc.Add(code)
 
-    let appendDummy (acc: BytecodeAccumulator) =
+    let appendDummy (acc: CodeGenBuffer) =
         let index = extractNextIndex acc
 
         acc.Add(Nop)

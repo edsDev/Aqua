@@ -9,10 +9,6 @@ open Aqua.Ast
 open Aqua.CodeGenerator
 open Aqua.Bytecode
 
-//
-// Reference Lookup Path: string list
-type ProjectSession = class end
-
 // first pass: parse the source file
 // second pass: enumerate and memorize declarations
 // third pass: do type checking
@@ -26,9 +22,10 @@ let main argv =
         class Program {
             public static fun foo(x: int) -> bool {
                 val y = 2;
+                var z = 42;
 
                 if ((x==42) is bool) {
-                    return true;
+                    return y==z;
                 }
                 else {
                     return false;
@@ -64,31 +61,27 @@ let main argv =
     // module loader
     let loader = ModuleLoader([])
 
-    // parse
-    let codePage =
-        match parseCodePage sampleCode with
-        | Ok t -> t
-        | Error e -> printfn "%s" e; failwith e
-
-    // preprocessing
-    let session, pendingKlassList =
-        preprocessModule loader codePage
-
-    // type checking
-    let astKlassList =
-        translateModule session pendingKlassList
-
-    // code generation
-    let ss = Seq.toList <| seq {
-        for AstKlass(klassDef, methodList) in astKlassList do
-            for AstMethod(methodDef, body) in methodList do
-                let codeAcc = CodeGen.createEmpty ()
+    sampleCode
+    |> parseModule
+    |> Result.bind (preprocessModule loader)
+    |> Result.bind translateModule
+    |> function
+       | Ok astKlassList ->
+            let ss = Seq.toList <| seq {
+                for AstKlass(klassDef, methodList) in astKlassList do
+                    for AstMethod(methodDef, varList, body) in methodList do
+                        let codeAcc = CodeGen.createEmpty ()
                 
-                compileStmt () () codeAcc body
-                yield methodDef.Name, codeAcc.ToArray()
-    }
+                        compileStmt () () codeAcc body
+                        yield methodDef.Name, codeAcc.ToArray()
+            }
+            printfn "%A" ss
+       | Error (ParsingError e) ->
+            printfn "%A" e
+       | Error (TranslationError e) ->
+            printfn "%A" e
 
-    printfn "%A" ss
+
     Console.ReadKey() |> ignore
 
     0 // return an integer exit code
