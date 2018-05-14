@@ -5,7 +5,6 @@ open Aqua.Syntax
 open Aqua.Ast
 open Aqua.ErrorMessage
 open Aqua.Compiler
-open Aqua.CollectionUtils
 
 let existImplicitConversion ctx srcType destType =
     srcType=destType
@@ -21,11 +20,11 @@ let isAssignable ctx expr =
     | Ast_NameAccessExpr(_, mut, _) ->
         mut = MutabilitySpec.Mutable
     | Ast_MemberAccessExpr(_, e, name) ->
-        let fieldOwner = (getAstExprType e).ToString()
+        let fieldOwnerName =  e |> getAstExprType |> getTypeName
 
-        match lookupField ctx fieldOwner name with
-        | Some def -> def.Mutability = MutabilitySpec.Mutable
-        | None -> false
+        lookupField ctx fieldOwnerName name
+        |> Option.map FieldDefinition.isMutable
+        |> Option.defaultValue false
     | _ ->
         false
 
@@ -35,17 +34,20 @@ let resolveImplicitMethodCall ctx rg funcName argTypeList =
 let resolveExplicitMethodCall ctx rg selfExpr funcName argTypeList =
     []
 
-let resolveMethodCall ctx rg typeName methodName argList =
+let resolveInstanceMethodCall ctx rg instance methodName argList =
     let argTypeList =
         argList |> List.map getAstExprType
 
+    let typeName =
+        instance |> getAstExprType |> getTypeName
+
     let candidates =
         lookupMethod ctx typeName methodName
-        |> List.filter (fun def -> isInvocable ctx def.Signature argTypeList)
+        |> List.filter (fun def -> isInvocable ctx (MethodDefinition.getSignature def) argTypeList)
 
     match candidates with
     | [x] ->
-        Ok <| Ast_InvocationExpr(CallableMethod(typeName, x), argList)
+        Ok <| Ast_InvocationExpr(CallableInstanceMethod(instance, x), argList)
     | [] ->
         Error <| invalidFunctionCall rg methodName argTypeList
     | _ ->
@@ -136,7 +138,7 @@ let rec translateExpr ctx expr =
                     let typeName = getTypeName t
                     match lookupField ctx typeName name with
                     | Some x ->
-                        Ok <| Ast_MemberAccessExpr(x.Type, e, name)
+                        Ok <| Ast_MemberAccessExpr(FieldDefinition.getType x, e, name)
                     | None ->
                         Error <| invalidFieldReference rg typeName name)
 
@@ -161,8 +163,8 @@ let rec translateExpr ctx expr =
                 translateExpr newCtx srcExpr
                 |> processEvalResult
                        (fun e ->
-                            let typeName = (getAstExprType e).ToString()
-                            resolveMethodCall ctx nameRange typeName methodName astArgs)
+                            let typeName = e |> getAstExprType |> getTypeName
+                            resolveInstanceMethodCall ctx nameRange e methodName astArgs)
             | _ ->
                 translateExpr newCtx calleeExpr
                 |> processEvalResult
@@ -195,7 +197,7 @@ let rec translateExpr ctx expr =
                     | Op_BitwiseAnd | Op_BitwiseOr
                     | Op_BitwiseXor ->
                         match lhsType, rhsType with
-                        | SystemTypeIdent(Int), SystemTypeIdent(Int) ->
+                        | SystemTypeIdent(BuiltinType.Int), SystemTypeIdent(BuiltinType.Int) ->
                             Ok <| Ast_BinaryExpr(kIntType, op, e1, e2)
                         | SystemTypeIdent(_), SystemTypeIdent(_) ->
                             Error <| invalidBinaryOperation rg op lhsType rhsType
@@ -206,7 +208,7 @@ let rec translateExpr ctx expr =
                     | Op_Greater | Op_GreaterEq
                     | Op_Less | Op_LessEq ->
                         match lhsType, rhsType with
-                        | SystemTypeIdent(x), SystemTypeIdent(y) when x=y && x<>Unit ->
+                        | SystemTypeIdent(x), SystemTypeIdent(y) when x=y && x<>BuiltinType.Unit ->
                             Ok <| Ast_BinaryExpr(kBoolType, op, e1, e2)
                         | SystemTypeIdent(_), SystemTypeIdent(_) ->
                             Error <| invalidBinaryOperation rg op lhsType rhsType
@@ -215,7 +217,7 @@ let rec translateExpr ctx expr =
 
                     | Op_Conjunction | Op_Disjunction ->
                         match lhsType, rhsType with
-                        | SystemTypeIdent(Bool), SystemTypeIdent(Bool) ->
+                        | SystemTypeIdent(BuiltinType.Bool), SystemTypeIdent(BuiltinType.Bool) ->
                             Ok <| Ast_BinaryExpr(kBoolType, op, e1, e2)
 
                         | SystemTypeIdent(_), SystemTypeIdent(_) ->
@@ -352,27 +354,8 @@ let translateMethod env body =
     | None ->
         Error <| ctx.ErrorMessages
 
-let createTypeLookup session =
-    let def2Lookup moduleIdent (klassDef: KlassDefinition) =
-        let fieldLookup = DictView.ofSeq <| seq {
-            for field in klassDef.Fields do
-                yield field.Name, field
-        }
-        let methodLookup = DictView.ofSeq <| seq {
-            for method in klassDef.Methods do
-                yield method.Name, List.singleton method
-        }
-
-        KlassLookupItem(moduleIdent, klassDef, fieldLookup, methodLookup)
-
-    DictView.ofSeq <| seq {
-        for klass in session.CurrentModule.KlassList do
-            yield klass.Name, def2Lookup session.CurrentModule.ModuleName klass
-    }
-
 let translateModule session =
     let errorBuffer = ResizeArray()
-    let typeLookup = createTypeLookup session
 
     let klass = Seq.toList <| seq {
         for PendingKlass(klassDef, methodList) in session.PendingKlassList do
@@ -381,7 +364,7 @@ let translateModule session =
                     let env = { CurrentModule = session.CurrentModule.ModuleName
                                 CurrentKlass = klassDef
                                 CurrentMethod = methodDef
-                                TypeLookup = typeLookup }
+                                TypeLookup = session.TypeLookup }
 
                     match translateMethod env body with
                     | Ok result -> yield result

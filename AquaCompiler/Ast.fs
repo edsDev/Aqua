@@ -19,10 +19,10 @@ type AstExpr =
 and VariableReference =
     | VariableArgument of int
     | VariableLocal of int
-    | VariableField of string
 
 and CallableReference =
-    | CallableMethod of string*MethodDefinition
+    | CallableInstanceMethod of AstExpr*MethodDefinition
+    | CallableStaticMethod of KlassDefinition*MethodDefinition
     | CallableExpression of AstExpr*FunctionSignature
 
 let rec getAstExprType expr =
@@ -33,11 +33,15 @@ let rec getAstExprType expr =
     | Ast_MemberAccessExpr(t, _, _)     -> t
     | Ast_TypeCheckExpr(_, _)           -> kBoolType
     | Ast_TypeCastExpr(_, t)            -> t
+    | Ast_BinaryExpr(t, _, _, _)        -> t
     | Ast_InvocationExpr(callable, _)   ->
         match callable with
-        | CallableMethod(_, d)      -> d.ReturnType
-        | CallableExpression(_, s)  -> s.ReturnType
-    | Ast_BinaryExpr(t, _, _, _)        -> t
+        | CallableInstanceMethod(_, d)      
+            -> MethodDefinition.getReturnType d
+        | CallableStaticMethod(_, d)        
+            -> MethodDefinition.getReturnType d
+        | CallableExpression(_, s)          
+            -> s.ReturnType
 
 // AstStmt
 //

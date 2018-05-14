@@ -1,18 +1,16 @@
-﻿module Aqua.Preprocessor
+﻿module Aqua.PageProcessor
 
 open Aqua.ResultUtils
 open Aqua.CollectionUtils
 open Aqua.Language
 open Aqua.Syntax
-open Aqua.Ast
 open Aqua.ErrorMessage
 open Aqua.Compiler
-open System.Linq
 
 // helpers
 //
 
-let rec translateTypeListLite lookupProxy typeList =
+let rec private translateTypeListLite lookupProxy typeList =
     let translateTypeAux type' =
         match type' with
         | Syn_SystemType(_, category) ->
@@ -52,11 +50,11 @@ let translateTypeLite lookupProxy type' =
 // preprocessing
 //
 
-let preprocessField lookupProxy (decl: FieldDecl) =
-    Error []
+let private processField lookupProxy (decl: FieldDecl) =
+    translateTypeLite lookupProxy decl.Type
+    |> Result.map (fun t -> FieldDefinition(decl.Name, decl.Modifiers, decl.Mutability, t))
 
-let preprocessMethod lookupProxy (decl: MethodDecl) =
-
+let private processMethod lookupProxy (decl: MethodDecl) =
     let paramNameList, paramTypeList =
         List.unzip decl.Declarator.ParamList
 
@@ -74,27 +72,40 @@ let preprocessMethod lookupProxy (decl: MethodDecl) =
 
                        PendingMethod(definition, decl.Body))
 
-let preprocessKlass lookupType (decl: KlassDecl) =
+let private processKlass lookupType (decl: KlassDecl) =
     let fields, fieldErrors =
         decl.Fields
-        |> List.map (preprocessField lookupType)
+        |> List.map (processField lookupType)
         |> Result.rearrange
 
     let methods, methodErrors =
         decl.Methods
-        |> List.map (preprocessMethod lookupType)
+        |> List.map (processMethod lookupType)
         |> Result.rearrange
 
-    if fieldErrors |> List.isEmpty && methodErrors |> List.isEmpty then
+    if [fieldErrors; methodErrors] |> List.forall List.isEmpty then
         let fieldDefList = fields
         let methodDefList = methods |> List.map (fun x -> x.Definition)
 
-        Ok <| PendingKlass(KlassDefinition(decl.Name, fieldDefList, methodDefList), methods)
+        Ok <| PendingKlass(KlassDefinition(decl.Name, decl.Modifiers, fieldDefList, methodDefList), methods)
     else
-        Error <| List.append (fieldErrors |> List.collect id) (methodErrors |> List.collect id)
+        Error <| ((fieldErrors @ methodErrors) |> List.collect id)
 
-let preprocessModule (loader: ModuleLoader) decl =
-    // TODO: remove mutable buffer
+let private createTypeLookupItem moduleIdent klassDef =
+    let fieldLookup =
+        KlassDefinition.getFields klassDef
+        |> Seq.map (fun field -> FieldDefinition.getName field, field)
+        |> DictView.ofSeq
+
+    let methodLookup =
+        KlassDefinition.getMethods klassDef
+        |> Seq.groupBy MethodDefinition.getName
+        |> Seq.map (fun (name, methods) -> name, List.ofSeq methods)
+        |> DictView.ofSeq
+
+    KlassLookupItem(moduleIdent, klassDef, fieldLookup, methodLookup)
+
+let processModule (loader: ModuleLoader) decl =  
     let errorBuffer = ResizeArray()
 
     let currentModuleName =
@@ -116,8 +127,15 @@ let preprocessModule (loader: ModuleLoader) decl =
 
             // external types
             for moduleInfo in importedModules do
-                for klassInfo in moduleInfo.KlassList do
-                    yield klassInfo.Name, UserTypeIdent(moduleInfo.ModuleName, klassInfo.Name)
+                let publicKlassList = 
+                    moduleInfo.KlassList 
+                    |> Seq.filter (KlassDefinition.getModifiers >> ModifierGroup.isPublic)
+
+                for klass in publicKlassList do
+                    let klassName = 
+                        KlassDefinition.getName klass
+
+                    yield klassName, UserTypeIdent(moduleInfo.ModuleName, klassName)
         }
 
     let lookupProxy name =
@@ -126,7 +144,7 @@ let preprocessModule (loader: ModuleLoader) decl =
     let pendingKlassList =
         Seq.toList <| seq {
             for klass in decl.KlassList do
-                match preprocessKlass lookupProxy klass with
+                match processKlass lookupProxy klass with
                 | Ok record ->
                     yield record
                 | Error msgs ->
@@ -138,11 +156,18 @@ let preprocessModule (loader: ModuleLoader) decl =
           ImportList = importedModules |> List.map (fun x -> x.ModuleName)
           KlassList = pendingKlassList |> List.map (fun x -> x.Definition) }
 
+    let typeLookup =
+        DictView.ofSeq <| seq {
+            for PendingKlass(def, _) in pendingKlassList do
+                let klassType = UserTypeIdent(currentModuleName, def.Name)
+                yield (getTypeName klassType), (createTypeLookupItem currentModuleName def)
+
+        }
 
     if errorBuffer.Count = 0 then
         Ok <| { CurrentModule = currentModule
-                ImportedModules = importedModules
                 
+                TypeLookup = typeLookup
                 PendingKlassList = pendingKlassList }
     else
         Error <| TranslationError errorBuffer

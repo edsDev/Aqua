@@ -30,7 +30,7 @@ let invalidVariableReference rg name =
     |> createErrorMessage rg
 
 let invalidFieldReference rg typeName fieldName =
-    sprintf "type %s not has member %s" typeName fieldName
+    sprintf "type %s does not have member %s" typeName fieldName
     |> createErrorMessage rg
 
 let invalidExpressionCall rg argTypeList =

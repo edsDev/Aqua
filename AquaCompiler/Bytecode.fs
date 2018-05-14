@@ -3,16 +3,19 @@
 type Bytecode =
     | Nop
 
+    //
+    //
     | LoadArg of int
     | LoadLocal of int
-    //| LoadField
-    //| LoadElement
+    | LoadField of string
+    | LoadElement
     | StoreArg of int
     | StoreLocal of int
-    //| StoreField
-    //| StoreElement
+    | StoreField of string
+    | StoreElement
 
     // stack operation
+    //
     | PushI32 of int32
     | PushI64 of int64
     | PushU32 of uint32
@@ -24,6 +27,7 @@ type Bytecode =
     | Dup
 
     // arithmetic
+    //
     | Add
     | Sub
     | Mul
@@ -32,6 +36,7 @@ type Bytecode =
     | Neg
 
     // bit operation
+    //
     | Shl
     | Shr
     | And
@@ -40,15 +45,23 @@ type Bytecode =
     | Rev
 
     // comparison
+    //
     | Eq
+    | NEq
+    | Gt
+    | GtEq
+    | Ls
+    | LsEq
 
     // control flow
+    //
     | Jump of int
     | JumpOnTrue of int
     | JumpOnFalse of int
     | Ret
 
     // type cast
+    //
     | CastBool
     | CastI8
     | CastI16
@@ -63,6 +76,7 @@ type Bytecode =
     | CastObj of string
 
     // object model
+    //
     //| NewObj
     //| NewArr
     //| Box

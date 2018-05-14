@@ -3,6 +3,7 @@
 open Aqua.Language
 open Aqua.Ast
 open Aqua.Bytecode
+open CollectionUtils
 
 type CodeGenContext =
     { x: int }
@@ -28,11 +29,10 @@ let rec compileExpr ctx codeBuf expr =
             emitBytecode <| LoadArg id
         | VariableLocal id ->
             emitBytecode <| LoadLocal id
-        | VariableField name ->
-            failwith "not implemented"
 
-    | Ast_MemberAccessExpr(_, _, _) ->
-        failwith "not implemented"
+    | Ast_MemberAccessExpr(_, object, name) ->
+        emitExpr <| object
+        emitBytecode <| LoadField name
 
     | Ast_TypeCheckExpr(child, testType) ->
         let childType = getAstExprType child
@@ -40,7 +40,7 @@ let rec compileExpr ctx codeBuf expr =
         if childType.IsReferenceType then
             emitExpr <| child
             
-            emitBytecode <| CastObj(testType.ToString())
+            emitBytecode <| CastObj (getTypeName testType)
             emitBytecode <| CastBool
         else
             match childType, testType with
@@ -53,37 +53,81 @@ let rec compileExpr ctx codeBuf expr =
         emitExpr <| child
 
         if (getAstExprType child).IsReferenceType then
-            emitBytecode <| CastObj(targetType.ToString())
+            emitBytecode <| CastObj (getTypeName targetType)
         else
             let opcode =
                 match targetType with
-                | SystemTypeIdent(Bool)  -> CastBool
-                | SystemTypeIdent(Int)   -> CastI32
-                | SystemTypeIdent(Float) -> CastF32
+                | SystemTypeIdent(BuiltinType.Bool)  -> CastBool
+                | SystemTypeIdent(BuiltinType.Int)   -> CastI32
+                | SystemTypeIdent(BuiltinType.Float) -> CastF32
                 | _ -> failwith "not implemented"
 
             emitBytecode <| opcode
 
     | Ast_InvocationExpr(callee, args) ->
         args |> List.iter (fun x -> emitExpr <| x)
+        match callee with
+        | CallableInstanceMethod(instance, methodDef) ->
+            // TODO: this is actually incorrect
+            //       overloading is not considered yet
+            let typeName = instance |> getAstExprType |> getTypeName
 
-    | Ast_BinaryExpr(type', op, lhs, rhs) ->
-        emitExpr lhs
-        emitExpr rhs
+            emitExpr <| instance
+            emitBytecode <| Call (typeName + "." + methodDef.Name)
 
+        | CallableStaticMethod(klassDef, methodDef) ->
+            emitBytecode <| Call (klassDef.Name + "." + methodDef.Name)
+
+        | CallableExpression(calledExpr, sigature) ->
+            failwith "expression call not supported yet"
+
+    | Ast_BinaryExpr(_, op, lhs, rhs) ->
         match op with
-        | Op_Plus ->
-            emitBytecode <| Add
-        | Op_Minus ->
-            emitBytecode <| Sub
-        | Op_Asterisk ->
-            emitBytecode <| Mul
-        | Op_Slash ->
-            emitBytecode <| Div
-        | Op_Equal ->
-            emitBytecode <| Eq
-        | _ ->
-            failwith "not implemented"
+        | Op_Assign ->
+            match lhs with
+            | Ast_NameAccessExpr(_, _, var) ->
+                emitExpr <| rhs
+
+                match var with
+                | VariableArgument id ->
+                    emitBytecode <| StoreArg id
+                | VariableLocal id ->
+                    emitBytecode <| StoreLocal id
+
+            | Ast_MemberAccessExpr(_, object, name) ->
+                emitExpr <| rhs
+                emitBytecode <| Dup
+                emitExpr <| object
+                emitBytecode <| StoreField name
+
+            | _ ->
+                failwith "impossible case"
+
+        | op ->
+            let translationMap = 
+                [ Op_Plus, Add 
+                  Op_Minus, Sub
+                  Op_Asterisk, Mul
+                  Op_Slash, Div
+                  Op_Modulus, Rem
+                  
+                  Op_Equal, Eq
+                  Op_NotEqual, NEq
+                  Op_Greater, Gt
+                  Op_GreaterEq, GtEq
+                  Op_Less, Ls
+                  Op_LessEq, LsEq
+                  
+                  Op_Conjunction, And
+                  Op_Disjunction, Or
+                  Op_BitwiseAnd, And
+                  Op_BitwiseOr, Or
+                  Op_BitwiseXor, Xor ]
+                |> DictView.ofSeq
+
+            emitExpr lhs
+            emitExpr rhs
+            emitBytecode <| DictView.find op translationMap
 
 let rec compileStmt ctx codeBuf stmt =
     let emitBytecode = CodeGen.appendBytecode codeBuf

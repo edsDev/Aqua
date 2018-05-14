@@ -5,32 +5,31 @@ open Aqua.Syntax
 open FParsec
 open Aqua.Compiler
 
-let kLongestCommentLength = 10000
+module private ParsecImpl =
 
-let keywords =
-    [ "true"; "false"; "if"; "else"; "while";
-      "fun"; "return"; "unit"; "bool"; "int";
-      "val"; "var"; "this"; ]
+    let kLongestCommentLength = 10000
 
-type SynExprSuffix =
-    | MemberAccessSuffix of SynRange*string
-    | InvocationSuffix of SynRange*SyntaxExpr list
+    let keywords =
+        [ "true"; "false"; "if"; "else"; "while";
+          "fun"; "return"; "unit"; "bool"; "int";
+          "val"; "var"; "this"; ]
 
-[<RequireQualifiedAccess>]
-type FieldOrMethod =
-    | Field of FieldDecl
-    | Method of MethodDecl
+    type SynExprSuffix =
+        | MemberAccessSuffix of SynRange*string
+        | InvocationSuffix of SynRange*SyntaxExpr list
 
-    member m.MaybeField =
-        match m with
-        | Field(x) -> Some x
-        | Method(_) -> None
-    member m.MaybeMethod =
-        match m with
-        | Field(_) -> None
-        | Method(x) -> Some x
+    type FieldOrMethod =
+        | FieldItem of FieldDecl
+        | MethodItem of MethodDecl
 
-module ParsecInstance =
+        member m.MaybeField =
+            match m with
+            | FieldItem(x) -> Some x
+            | MethodItem(_) -> None
+        member m.MaybeMethod =
+            match m with
+            | FieldItem(_) -> None
+            | MethodItem(x) -> Some x
 
     // [Basic Component] is atomic element in syntax
     // [Syntax Element] is coumpound element and would pull tailing spaces
@@ -150,6 +149,8 @@ module ParsecInstance =
               (fun posStart result posEnd ->
                    f (makeRange posStart posEnd) result)
 
+    let withRange0 ctor p =
+        p |> withRange (fun rg _ -> ctor rg)
     let withRange1 ctor p =
         p |> withRange (fun rg (x1) -> ctor (rg, x1))
     let withRange2 ctor p =
@@ -164,7 +165,9 @@ module ParsecInstance =
     let pType, pTypeImpl = createParserForwardedToRef()
 
     let pSystemType =
-        [ "unit", Unit; "bool", Bool; "int", Int;]
+        [ "unit", BuiltinType.Unit
+          "bool", BuiltinType.Bool
+          "int", BuiltinType.Int ]
         |> List.map (fun (text, type') -> stringReturn text type')
         |> choice
         |> withRange1 Syn_SystemType
@@ -211,6 +214,11 @@ module ParsecInstance =
 
     // [Syntax Element] expression
     //
+    let pInstanceExpr =
+        skipString_ws "this"
+        |> withRange0 Syn_InstanceExpr
+        |> pullSpace
+
     let pLiteralExpr =
         pLiteral
         |> withRange1 Syn_LiteralExpr
@@ -225,7 +233,10 @@ module ParsecInstance =
         let opp = OperatorPrecedenceParser()
 
         let pAtomicExpr =
-            choice [ pLiteralExpr; pNamedExpr; opp.ExpressionParser |> betweenParathe |> pullSpace ]
+            choice [ pInstanceExpr
+                     pLiteralExpr
+                     pNamedExpr
+                     opp.ExpressionParser |> betweenParathe |> pullSpace ]
 
         let pMemberAccessSuffix =
             let pDot = skipChar_ws '.'
@@ -355,7 +366,8 @@ module ParsecInstance =
         (pwhile >>. (tuple2 ptest pbody)) |> withRange2 Syn_WhileStmt
 
     let pControlFlowStmt =
-        choice [stringReturn_ws "break" Break; stringReturn_ws "continue" Continue]
+        choice [stringReturn_ws "break" ControlFlow.Break 
+                stringReturn_ws "continue" ControlFlow.Continue ]
         |> withRange1 Syn_ControlFlowStmt
 
     let pReturnStmt =
@@ -400,8 +412,8 @@ module ParsecInstance =
         let pKeyword = skipString_ws "class"
 
         let pModifierGroup =
-            let pAccess = pAccessModifier_ws <|>% kDefaultAccessType
-            let pLifetime = pLifetimeModifier_ws <|>% kDefaultLifetimeType
+            let pAccess = pAccessModifier_ws <|>% kDefaultAccess
+            let pLifetime = pLifetimeModifier_ws <|>% kDefaultLifetime
 
             pAccess .>>. pLifetime
             |>> fun (am, lm) -> { AccessType = am; LifetimeType = lm }
@@ -425,13 +437,13 @@ module ParsecInstance =
 
             pipe4 (pModifierGroup .>> pfun) pname pdeclarator pbody
                   (fun modifiers name decl body -> MethodDecl(name, modifiers, decl, body))
-            |>> FieldOrMethod.Method
+            |>> MethodItem
             <?> "method declaration"
 
         let pFieldDecl =
-            pipe4 pModifierGroup pMutability_ws pIdent_ws pTypeAnnot
+            pipe4 pModifierGroup pMutability_ws pIdent_ws (pTypeAnnot .>> skipChar_ws ';')
                   (fun modifiers mut name type' -> FieldDecl(name, modifiers, mut, type'))
-            |>> FieldOrMethod.Field
+            |>> FieldItem
             <?> "field declaration"
 
         let pKlassBody =
@@ -450,7 +462,6 @@ module ParsecInstance =
     // code page
     //
 
-    // explicitly annotate the type to avoid generic value
     let (pCodePage: Parser<_, unit>) =
         let pPageContent =
             pipe3 (pModule) (many pImport) (many pKlass)
@@ -466,6 +477,6 @@ module ParsecInstance =
 //
 
 let parseModule s =
-    match runParserOnString ParsecInstance.pCodePage () "" s with
+    match runParserOnString ParsecImpl.pCodePage () "" s with
     | ParserResult.Success(result, _, _) -> Result.Ok <| result
     | ParserResult.Failure(error, _, _)  -> Result.Error <| ParsingError error

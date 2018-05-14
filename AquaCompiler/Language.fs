@@ -1,9 +1,9 @@
 ﻿module Aqua.Language
 
 open System
-open CollectionUtils
 
-type BuiltinTypeCategory =
+[<RequireQualifiedAccess>]
+type BuiltinType =
     | Unit
     | Bool
     | Int
@@ -32,12 +32,17 @@ type BinaryOp =
     | Op_Conjunction
     | Op_Disjunction
 
+[<RequireQualifiedAccess>]
 type ControlFlow =
     | Break | Continue
 
 [<RequireQualifiedAccess>]
 type MutabilitySpec =
     | Mutable | Readonly
+
+
+// Modifiers
+//
 
 [<RequireQualifiedAccess>]
 type AccessModifier =
@@ -47,12 +52,29 @@ type AccessModifier =
 type LifetimeModifier =
     | Instance | Static
 
+let kDefaultAccess = AccessModifier.Public
+let kDefaultLifetime = LifetimeModifier.Instance
+
 type ModifierGroup =
     { AccessType: AccessModifier
       LifetimeType: LifetimeModifier }
 
-let kDefaultAccessType = AccessModifier.Public
-let kDefaultLifetimeType = LifetimeModifier.Instance
+    static member Default =
+        { AccessType = kDefaultAccess; LifetimeType = kDefaultLifetime }
+
+module ModifierGroup =
+    let getAccessType ms = ms.AccessType
+    let getLifetimeType ms = ms.LifetimeType
+
+    let isPublic ms =
+        ms.AccessType = AccessModifier.Public
+    let isPrivate ms =
+        ms.AccessType = AccessModifier.Private
+
+    let isInstance ms =
+        ms.LifetimeType = LifetimeModifier.Instance
+    let isStatic ms =
+        ms.LifetimeType = LifetimeModifier.Static
 
 // module
 //
@@ -69,17 +91,20 @@ type ModuleIdent =
         ModuleIdent(domain, name)
 
     member m.Domain =
-        match m with | ModuleIdent(x, _) -> x
+        m |> function ModuleIdent(domain = x) -> x
     member m.Name =
-        match m with | ModuleIdent(_, x) -> x
+        m |> function ModuleIdent(name = x) -> x
 
-    override m.ToString() = m.Domain + "." + m.Name
+    override m.ToString() = 
+        match m.Domain.Length with
+        | 0 -> m.Name
+        | _ -> m.Domain + "." + m.Name
 
 // type
 //
 type TypeIdent =
     // primary type defined in aqua language
-    | SystemTypeIdent of BuiltinTypeCategory
+    | SystemTypeIdent of BuiltinType
     // TODO: classify into classes and enums
     // user-defined type
     | UserTypeIdent of ModuleIdent*string
@@ -88,7 +113,7 @@ type TypeIdent =
 
     member m.IsReferenceType =
         match m with
-        | SystemTypeIdent(Object)
+        | SystemTypeIdent(BuiltinType.Object)
         | UserTypeIdent(_)
         | FunctionTypeIdent(_) ->
             true
@@ -108,11 +133,11 @@ and FunctionSignature =
 
 // shortcuts for TypeStub construction
 //
-let kUnitType = SystemTypeIdent Unit
-let kBoolType = SystemTypeIdent Bool
-let kIntType = SystemTypeIdent Int
-let kFloatType = SystemTypeIdent Float
-let kObjectType = SystemTypeIdent Object
+let kUnitType = SystemTypeIdent BuiltinType.Unit
+let kBoolType = SystemTypeIdent BuiltinType.Bool
+let kIntType = SystemTypeIdent BuiltinType.Int
+let kFloatType = SystemTypeIdent BuiltinType.Float
+let kObjectType = SystemTypeIdent BuiltinType.Object
 
 let makeFunctionTypeIdent paramTypes retType =
     FunctionTypeIdent <| FunctionSignature(paramTypes, retType)
@@ -148,23 +173,34 @@ type MethodDefinition =
                           returnType: TypeIdent
 
     member m.Name =
-        match m with | MethodDefinition(x, _, _, _) -> x
+        m |> function MethodDefinition(name = x) -> x
     member m.Modifiers =
-        match m with | MethodDefinition(_, x, _, _) -> x
+        m |> function MethodDefinition(modifiers = x) -> x
     member m.Parameters =
-        match m with | MethodDefinition(_, _, x, _) -> x
+        m |> function MethodDefinition(parameters = x) -> x
     member m.ReturnType =
-        match m with | MethodDefinition(_, _, _, x) -> x
+        m |> function MethodDefinition(returnType = x) -> x
+        
 
-    member m.AccessType = 
-        m.Modifiers.AccessType
-    member m.LifetimeType = 
-        m.Modifiers.LifetimeType
 
-    member m.Signature =
-        match m with
+module MethodDefinition =
+    let getName (def: MethodDefinition) = 
+        def.Name
+
+    let getModifiers (def: MethodDefinition) = 
+        def.Modifiers
+
+    let getParameters (def: MethodDefinition) = 
+        def.Parameters
+
+    let getReturnType (def: MethodDefinition) = 
+        def.ReturnType
+
+    let getSignature def =
+        match def with
         | MethodDefinition(_, _, paramPack, retType) ->
             FunctionSignature(paramPack |> List.map snd, retType)
+        
 
 type FieldDefinition =
     | FieldDefinition of name: string *
@@ -173,25 +209,58 @@ type FieldDefinition =
                          type': TypeIdent
 
     member m.Name =
-        match m with | FieldDefinition(x, _, _, _) -> x
+        m |> function FieldDefinition(name = x) -> x
     member m.Modifiers =
-        match m with | FieldDefinition(_, x, _, _) -> x
+        m |> function FieldDefinition(modifiers = x) -> x
     member m.Mutability =
-        match m with | FieldDefinition(_, _, x, _) -> x
+        m |> function FieldDefinition(mutability = x) -> x
     member m.Type =
-        match m with | FieldDefinition(_, _, _, x) -> x
+        m |> function FieldDefinition(type' = x) -> x
+
+module FieldDefinition =
+    let getName (def: FieldDefinition) = 
+        def.Name
+
+    let getModifiers (def: FieldDefinition) = 
+        def.Modifiers
+
+    let getMutability (def: FieldDefinition) = 
+        def.Mutability
+
+    let getType (def: FieldDefinition) = 
+        def.Type
+
+    let isMutable def =
+        (getMutability def) = MutabilitySpec.Mutable
+
 
 type KlassDefinition =
     | KlassDefinition of name: string *
+                         modifiers: ModifierGroup *
                          fields: FieldDefinition list *
                          methods: MethodDefinition list
 
     member m.Name =
-        match m with | KlassDefinition(x, _, _) -> x
+        m |> function KlassDefinition(name = x) -> x
+    member m.Modifiers =
+        m |> function KlassDefinition(modifiers = x) -> x
     member m.Fields =
-        match m with | KlassDefinition(_, x, _) -> x
+        m |> function KlassDefinition(fields = x) -> x
     member m.Methods =
-        match m with | KlassDefinition(_, _, x) -> x
+        m |> function KlassDefinition(methods = x) -> x
+
+module KlassDefinition =
+    let getName (def: KlassDefinition) = 
+        def.Name
+
+    let getModifiers (def: KlassDefinition) = 
+        def.Modifiers
+
+    let getFields (def: KlassDefinition) = 
+        def.Fields
+
+    let getMethods (def: KlassDefinition) = 
+        def.Methods
 
 (*
 type EnumItem =

@@ -7,6 +7,8 @@ open Aqua.Ast
 open System.IO
 open System.Collections.Generic
 open FSharpx.Collections
+open Aqua.Language
+open Aqua.Language
 
 type ErrorMessage =
     { ReferenceRange: SynRange; Message: string; }
@@ -91,11 +93,12 @@ type TranslationContext =
 let createContext env =
     let varLookup =
         let offset = 
-            match env.CurrentMethod.LifetimeType with
-            | LifetimeModifier.Static -> 0
-            | LifetimeModifier.Instance -> 1
+            env.CurrentMethod
+            |> MethodDefinition.getModifiers
+            |> ModifierGroup.getLifetimeType
+            |> function | LifetimeModifier.Static -> 0 | LifetimeModifier.Instance -> 1
 
-        env.CurrentMethod.Parameters
+        MethodDefinition.getParameters env.CurrentMethod
         |> Seq.mapi (fun i (name, t) -> name, ArgumentLookupItem(i + offset, name, t))
         |> Map.ofSeq
 
@@ -120,13 +123,15 @@ let getCurrentKlassType ctx =
     UserTypeIdent(env.CurrentModule, env.CurrentKlass.Name)
 
 let getMethodName ctx =
-    (getCurrentMethod ctx).Name
+    ctx |> getCurrentMethod |> MethodDefinition.getName
 
 let getReturnType ctx =
-    (getCurrentMethod ctx).Signature.ReturnType
+    ctx |> getCurrentMethod |> MethodDefinition.getReturnType
 
 let isInstanceContext ctx =
-    (getCurrentMethod ctx).LifetimeType <> LifetimeModifier.Static
+    getCurrentMethod ctx
+    |> MethodDefinition.getModifiers 
+    |> ModifierGroup.isInstance
 
 let getNextVarId ctx =
     PersistentVector.length ctx.VariableList
@@ -267,6 +272,6 @@ type PendingKlass =
 
 type TranslationSession = 
     { CurrentModule: BasicModuleInfo
-      ImportedModules: BasicModuleInfo list
       
+      TypeLookup: DictView<string, TypeAccessRecord>
       PendingKlassList: PendingKlass list }

@@ -3,7 +3,7 @@ open Aqua.Language
 open Aqua.Syntax
 open Aqua.Parser
 open Aqua.Compiler
-open Aqua.Preprocessor
+open Aqua.PageProcessor
 open Aqua.TypeChecker
 open Aqua.Ast
 open Aqua.CodeGenerator
@@ -40,22 +40,31 @@ let main argv =
             }
         }
 
-        /*
         class Point {
-
-            constructor(a: int, b: int) {
-                x = a;
-                y = b;
+            public fun SetX(t: int) -> unit {
+                this.x = t;
+            }
+            public fun SetY(t: int) -> unit {
+                this.y = t;
             }
 
-            fun DistToOrigin() -> int {
+            public fun GetX() -> int {
+                return this.x;
+            }
+            public fun GetY() -> int {
+                return this.y;
+            }
+
+            public fun DistToOrigin() -> int {
+                val x = this.GetX();
+                val y = this.GetY();
+
                 return x*x + y*y;
             }
 
-            val x: int;
-            val y: int;
+            var x: int;
+            var y: int;
         }
-        */
     """
 
     // module loader
@@ -63,23 +72,23 @@ let main argv =
 
     sampleCode
     |> parseModule
-    |> Result.bind (preprocessModule loader)
+    |> Result.bind (processModule loader)
     |> Result.bind translateModule
     |> function
        | Ok astKlassList ->
-            let ss = Seq.toList <| seq {
-                for AstKlass(klassDef, methodList) in astKlassList do
-                    for AstMethod(methodDef, varList, body) in methodList do
+            Seq.toList <| seq {
+                for AstKlass(klass, methodList) in astKlassList do
+                    for AstMethod(method, varList, body) in methodList do
                         let codeAcc = CodeGen.createEmpty ()
                 
-                        compileStmt () () codeAcc body
-                        yield methodDef.Name, codeAcc.ToArray()
+                        compileStmt () codeAcc body
+                        yield MethodDefinition.getName method, codeAcc.ToArray()
             }
-            printfn "%A" ss
+            |> List.iter (printfn "%A")
        | Error (ParsingError e) ->
-            printfn "%A" e
+            printfn "%s" e
        | Error (TranslationError e) ->
-            printfn "%A" e
+            printfn "%A" (e |> Seq.toList)
 
 
     Console.ReadKey() |> ignore

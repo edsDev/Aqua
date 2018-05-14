@@ -3,13 +3,16 @@
 open Aqua.Language
 
 type SynRange =
-    { StartIndex: int; Length: int; StartLine: int; StartColumn: int }
+    { StartIndex: int
+      Length: int
+      StartLine: int
+      StartColumn: int }
 
     static member Empty =
         { StartIndex = -1; Length = -1; StartLine = -1; StartColumn = -1 }
 
 type SyntaxType =
-    | Syn_SystemType    of SynRange*BuiltinTypeCategory
+    | Syn_SystemType    of SynRange*BuiltinType
     | Syn_UserType      of SynRange*string
     | Syn_FunctionType  of SynRange*SyntaxType list*SyntaxType
 
@@ -88,7 +91,7 @@ type FieldDecl =
         match m with | FieldDecl(_, x, _, _) -> x
     member m.Mutability =
         match m with | FieldDecl(_, _, x, _) -> x
-    member m.Body =
+    member m.Type =
         match m with | FieldDecl(_, _, _, x) -> x
 
 type KlassDecl =
