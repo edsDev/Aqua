@@ -80,22 +80,22 @@ let main argv =
             }
 
             public static fun Test(foo: Foo) -> unit {
-                this.DistToOrigin();
-                foo.Bar();
+                // this.DistToOrigin();
+                // foo.Bar();
             }
 
             public fun SetX(t: int) -> unit {
-                this.x = t;
+                x = t;
             }
             public fun SetY(t: int) -> unit {
-                this.y = t;
+                y = t;
             }
 
             public fun GetX() -> int {
-                return this.x;
+                return x;
             }
             public fun GetY() -> int {
-                return this.y;
+                return y;
             }
 
             var x: int;

@@ -173,7 +173,20 @@ let rec translateExpr ctx expr =
             ctx |> makeEvalResult (AstExpr.createLocalAccess t id)
 
         | None ->
-            ctx |> makeEvalError (invalidVariableReference rg name)
+            let typeName = 
+                ctx |> getCurrentKlassType |> getTypeName
+
+            match lookupField ctx typeName name with
+            | Some (klass, field) ->
+                let thisExpr =
+                    ctx |> getCurrentKlassType |> AstExpr.createInstance
+                let ref = 
+                    FieldReference(klass.Module, klass.Definition, field)
+
+                ctx |> makeEvalResult (AstExpr.createFieldAccess thisExpr ref)
+
+            | None ->
+                ctx |> makeEvalError (invalidVariableReference rg name)
 
     let translateMemberAccessExpr rg srcExpr name =
         translateExpr ctx srcExpr

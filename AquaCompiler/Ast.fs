@@ -93,6 +93,8 @@ module AstExpr =
     let createLocalAccess typeAnnot id =
         Ast_NameAccessExpr (typeAnnot, VariableLocal id)
 
+    let createFieldAccess srcExpr field =
+        Ast_MemberAccessExpr (srcExpr, field)
     
     let createInvokeInstance thisExpr method argExprList =
         Ast_InvocationExpr (CallableInstanceMethod (thisExpr, method), argExprList)
