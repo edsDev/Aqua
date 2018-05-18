@@ -1,5 +1,7 @@
 ﻿module Aqua.Bytecode
 
+open Aqua.Language
+
 type Bytecode =
     | Nop
 
@@ -73,14 +75,14 @@ type Bytecode =
     | CastU64
     | CastF32
     | CastF64
-    | CastObj of string
+    | CastObj of TypeIdent
 
     // object model
     //
-    //| NewObj
-    //| NewArr
-    //| Box
-    //| Unbox
+    | NewObj of TypeIdent
+    | NewArr of TypeIdent
+    | Box
+    | Unbox
 
     | Call of string
     //| CallVirtual

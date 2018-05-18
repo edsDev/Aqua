@@ -18,6 +18,15 @@ let main argv =
     let sampleCode = """
         module mycode
 
+        // NAME LOOKUP: METHOD
+        // [IMPLICIT LOOKUP]
+        // in static method, search for static method only
+        // in instance method, search for both static and instance method
+        //
+        // [EXPLICIT LOOKUP]
+        // <expr>.<method>(...) looks for instance method
+        // <type>.<method>(...) looks for static method
+
         //import std
         class Program {
             public static fun foo(x: int) -> bool {
@@ -38,9 +47,43 @@ let main argv =
             public static fun sum(x: int, y: int) -> int {
                 return x + /* block comment */ y;
             }
+
+            public static fun SumTo(n: int) -> int {
+
+                if (n<1) return 0;
+
+                var result = 0;
+                var x = 0;
+
+                while (x<n) {
+                    x = x + 1;
+                    result = result + x;
+
+                    if (x==41)
+                        continue;
+                }
+                
+                return result;
+            }
+        }
+
+        class Foo {
+            private fun Bar() -> unit {}
         }
 
         class Point {
+            public fun DistToOrigin() -> int {
+                val x = GetX();
+                val y = this.GetY();
+
+                return x*x + y*y;
+            }
+
+            public static fun Test(foo: Foo) -> unit {
+                this.DistToOrigin();
+                foo.Bar();
+            }
+
             public fun SetX(t: int) -> unit {
                 this.x = t;
             }
@@ -53,13 +96,6 @@ let main argv =
             }
             public fun GetY() -> int {
                 return this.y;
-            }
-
-            public fun DistToOrigin() -> int {
-                val x = this.GetX();
-                val y = this.GetY();
-
-                return x*x + y*y;
             }
 
             var x: int;
@@ -81,8 +117,8 @@ let main argv =
                     for AstMethod(method, varList, body) in methodList do
                         let codeAcc = CodeGen.createEmpty ()
                 
-                        compileStmt () codeAcc body
-                        yield MethodDefinition.getName method, codeAcc.ToArray()
+                        compileStmt { LoopStart = 0 } codeAcc body |> ignore
+                        yield method.Name, codeAcc.ToArray()
             }
             |> List.iter (printfn "%A")
        | Error (ParsingError e) ->

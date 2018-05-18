@@ -66,61 +66,61 @@ type MethodDeclarator =
     | MethodDeclarator of (string*SyntaxType) list*SyntaxType
 
     member m.ParamList =
-        match m with | MethodDeclarator(ps, _) -> ps
+        m |> function MethodDeclarator(ps, _) -> ps
     member m.ReturnType =
-        match m with | MethodDeclarator(_, ret) -> ret
+        m |> function MethodDeclarator(_, ret) -> ret
 
 type MethodDecl =
     | MethodDecl of string*ModifierGroup*MethodDeclarator*SyntaxStmt
 
     member m.Name =
-        match m with | MethodDecl(x, _, _, _) -> x
+        m |> function MethodDecl(x, _, _, _) -> x
     member m.Modifiers =
-        match m with | MethodDecl(_, x, _, _) -> x
+        m |> function MethodDecl(_, x, _, _) -> x
     member m.Declarator =
-        match m with | MethodDecl(_, _, x, _) -> x
+        m |> function MethodDecl(_, _, x, _) -> x
     member m.Body =
-        match m with | MethodDecl(_, _, _, x) -> x
+        m |> function MethodDecl(_, _, _, x) -> x
 
 type FieldDecl =
     | FieldDecl of string*ModifierGroup*MutabilitySpec*SyntaxType
 
     member m.Name =
-        match m with | FieldDecl(x, _, _, _) -> x
+        m |> function FieldDecl(x, _, _, _) -> x
     member m.Modifiers =
-        match m with | FieldDecl(_, x, _, _) -> x
+        m |> function FieldDecl(_, x, _, _) -> x
     member m.Mutability =
-        match m with | FieldDecl(_, _, x, _) -> x
+        m |> function FieldDecl(_, _, x, _) -> x
     member m.Type =
-        match m with | FieldDecl(_, _, _, x) -> x
+        m |> function FieldDecl(_, _, _, x) -> x
 
 type KlassDecl =
     | KlassDecl of string*ModifierGroup*MethodDecl list*FieldDecl list
 
     member m.Name =
-        match m with | KlassDecl(x, _, _, _) -> x
+        m |> function KlassDecl(x, _, _, _) -> x
     member m.Modifiers =
-        match m with | KlassDecl(_, x, _, _) -> x
+        m |> function KlassDecl(_, x, _, _) -> x
     member m.Methods =
-        match m with | KlassDecl(_, _, x, _) -> x
+        m |> function KlassDecl(_, _, x, _) -> x
     member m.Fields =
-        match m with | KlassDecl(_, _, _, x) -> x
+        m |> function KlassDecl(_, _, _, x) -> x
 
 type ModuleDecl =
     | ModuleDecl of SynRange*ModuleIdent
 
     member m.Range =
-        match m with | ModuleDecl(x, _) -> x
+        m |> function ModuleDecl(x, _) -> x
     member m.Identifier =
-        match m with | ModuleDecl(_, x) -> x
+        m |> function ModuleDecl(_, x) -> x
 
 type ImportDecl =
     | ImportDecl of SynRange*ModuleIdent
 
     member m.Range =
-        match m with | ImportDecl(x, _) -> x
+        m |> function ImportDecl(x, _) -> x
     member m.Identifier =
-        match m with | ImportDecl(_, x) -> x
+        m |> function ImportDecl(_, x) -> x
 
 type SyntaxCodePage =
     { Path        : string

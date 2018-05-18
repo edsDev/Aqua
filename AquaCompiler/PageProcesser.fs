@@ -6,6 +6,7 @@ open Aqua.Language
 open Aqua.Syntax
 open Aqua.ErrorMessage
 open Aqua.Compiler
+open Aqua.Ast
 
 // helpers
 //
@@ -103,7 +104,8 @@ let private createTypeLookupItem moduleIdent klassDef =
         |> Seq.map (fun (name, methods) -> name, List.ofSeq methods)
         |> DictView.ofSeq
 
-    KlassLookupItem(moduleIdent, klassDef, fieldLookup, methodLookup)
+    let klassRef = KlassReference(moduleIdent, klassDef)
+    KlassLookupItem(klassRef, fieldLookup, methodLookup)
 
 let processModule (loader: ModuleLoader) decl =  
     let errorBuffer = ResizeArray()

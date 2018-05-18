@@ -7,8 +7,6 @@ open Aqua.Ast
 open System.IO
 open System.Collections.Generic
 open FSharpx.Collections
-open Aqua.Language
-open Aqua.Language
 
 type ErrorMessage =
     { ReferenceRange: SynRange; Message: string; }
@@ -60,16 +58,21 @@ type FieldLookupTable = DictView<string, FieldDefinition>
 // <function name> -> <definition list>
 type MethodLookupTable = DictView<string, MethodDefinition list>
 
-type TypeAccessRecord =
-    //| EnumLookupItem of EnumDefinition
-    | KlassLookupItem of ModuleIdent*KlassDefinition*FieldLookupTable*MethodLookupTable
+type KlassAccessRecord =
+    | KlassLookupItem of KlassReference*FieldLookupTable*MethodLookupTable
+
+    member m.Klass =
+        m |> function KlassLookupItem(x, _, _) -> x
+    member m.FieldLookup =
+        m |> function KlassLookupItem(_, x, _) -> x
+    member m.MethodLookup =
+        m |> function KlassLookupItem(_, _, x) -> x
 
     member m.Type =
-        match m with
-        | KlassLookupItem(moduleName, def, _, _) -> UserTypeIdent(moduleName, def.Name)
+        m.Klass.Type
 
 // <type name> -> <definition>
-type TypeLookupTable = DictView<string, TypeAccessRecord>
+type TypeLookupTable = DictView<string, KlassAccessRecord>
 
 type NameAccessRecord =
     | ArgumentLookupItem of int*string*TypeIdent
@@ -96,9 +99,10 @@ let createContext env =
             env.CurrentMethod
             |> MethodDefinition.getModifiers
             |> ModifierGroup.getLifetimeType
-            |> function | LifetimeModifier.Static -> 0 | LifetimeModifier.Instance -> 1
+            |> function | LifetimeModifier.Static   -> 0 
+                        | LifetimeModifier.Instance -> 1
 
-        MethodDefinition.getParameters env.CurrentMethod
+        env.CurrentMethod.Parameters
         |> Seq.mapi (fun i (name, t) -> name, ArgumentLookupItem(i + offset, name, t))
         |> Map.ofSeq
 
@@ -109,169 +113,188 @@ let createContext env =
       VariableLookup = varLookup
       ErrorMessages = [] }
 
-// context proxy
-//
+module TranslationContext =
+    // element proxy
+    //
 
-let getCurrentKlass ctx =
-    ctx.Environment.CurrentKlass
+    let getCurrentKlass ctx =
+        ctx.Environment.CurrentKlass
 
-let getCurrentMethod ctx =
-    ctx.Environment.CurrentMethod
+    let getCurrentMethod ctx =
+        ctx.Environment.CurrentMethod
 
-let getCurrentKlassType ctx =
-    let env = ctx.Environment
-    UserTypeIdent(env.CurrentModule, env.CurrentKlass.Name)
+    let getCurrentKlassType ctx =
+        let env = ctx.Environment
+        UserTypeIdent(env.CurrentModule, env.CurrentKlass.Name)
 
-let getMethodName ctx =
-    ctx |> getCurrentMethod |> MethodDefinition.getName
+    let getMethodName ctx =
+        ctx |> getCurrentMethod |> MethodDefinition.getName
 
-let getReturnType ctx =
-    ctx |> getCurrentMethod |> MethodDefinition.getReturnType
+    let getReturnType ctx =
+        ctx |> getCurrentMethod |> MethodDefinition.getReturnType
 
-let isInstanceContext ctx =
-    getCurrentMethod ctx
-    |> MethodDefinition.getModifiers 
-    |> ModifierGroup.isInstance
+    let isInstanceContext ctx =
+        getCurrentMethod ctx
+        |> MethodDefinition.getModifiers 
+        |> ModifierGroup.isInstance
 
-let getNextVarId ctx =
-    PersistentVector.length ctx.VariableList
+    let getNextVarId ctx =
+        PersistentVector.length ctx.VariableList
 
-let lookupType ctx name =
-     ctx.Environment.TypeLookup
-     |> DictView.tryFind name
+    let private lookupTypeRecord ctx name =
+         ctx.Environment.TypeLookup
+         |> DictView.tryFind name
 
-let lookupMethod ctx typeName funcName =
-    lookupType ctx typeName
-    |> Option.bind (function | KlassLookupItem(_, _, _, table) -> table |> DictView.tryFind funcName)
-    |> Option.defaultValue []
+    let lookupKlass ctx name =
+        lookupTypeRecord ctx name
+        |> Option.map (fun klass -> klass.Klass)
 
-let lookupField ctx typeName fieldName =
-    lookupType ctx typeName
-    |> Option.bind (function | KlassLookupItem(_, _, table, _) -> table |> DictView.tryFind fieldName)
+    let lookupMethod ctx typeName funcName =
+        match lookupTypeRecord ctx typeName with
+        | Some type' ->
+            type'.MethodLookup
+            |> DictView.tryFind funcName
+            |> Option.bind (fun funcList -> Some (type'.Klass, funcList))
 
-let lookupVariable ctx name =
-    ctx.VariableLookup
-    |> Map.tryFind name
+        | None ->
+            None
 
-let insideLoopBody ctx =
-    ctx.LoopDepth > 0
+    let lookupField ctx typeName fieldName =
+        match lookupTypeRecord ctx typeName with
+        | Some type' ->
+            type'.FieldLookup 
+            |> DictView.tryFind fieldName
+            |> Option.map (fun field -> type'.Klass, field)
 
-// context transformer
-//
+        | None ->
+            None
+        
+    let lookupVariable ctx name =
+        ctx.VariableLookup
+        |> Map.tryFind name
 
-let restoreScope oldCtx newCtx =
-    { newCtx with VariableLookup = oldCtx.VariableLookup }
+    let lookupVariableById ctx id =
+        ctx.VariableList
+        |> PersistentVector.nth id
 
-let enterLoopBody ctx =
-    { ctx with LoopDepth = ctx.LoopDepth + 1 }
+    let insideLoopBody ctx =
+        ctx.LoopDepth > 0
 
-let exitLoopBody ctx =
-    { ctx with LoopDepth = ctx.LoopDepth - 1 }
+    // context transformer
+    //
 
-let declareVariable name mut type' ctx =
-    let id = PersistentVector.length ctx.VariableList
-    let decl = AstVariableDecl(name, type', mut)
-    let record = VariableLookupItem(id, name, type', mut)
+    let restoreScope oldCtx newCtx =
+        { newCtx with VariableLookup = oldCtx.VariableLookup }
 
-    { ctx with VariableList = ctx.VariableList |> PersistentVector.conj decl
-               VariableLookup = ctx.VariableLookup |> Map.add name record }
+    let enterLoopBody ctx =
+        { ctx with LoopDepth = ctx.LoopDepth + 1 }
 
-let appendError msg ctx =
-    { ctx with ErrorMessages = msg::ctx.ErrorMessages }
+    let exitLoopBody ctx =
+        { ctx with LoopDepth = ctx.LoopDepth - 1 }
 
-//
-//
+    let declareVariable name mut type' ctx =
+        let id = PersistentVector.length ctx.VariableList
+        let decl = AstVariableDecl(name, type', mut)
+        let record = VariableLookupItem(id, name, type', mut)
 
-let makeEvalResult result ctx =
-    Some result, ctx
+        { ctx with VariableList = ctx.VariableList |> PersistentVector.conj decl
+                   VariableLookup = ctx.VariableLookup |> Map.add name record }
 
-let makeEvalError msg ctx =
-    None, ctx |> appendError msg
+    let appendError msg ctx =
+        { ctx with ErrorMessages = msg::ctx.ErrorMessages }
 
-let escapeEvalError ctx =
-    None, ctx
+    //
+    //
 
-let bindEvalResult f (x, ctx) =
-    match x with
-    | Some u ->
-        f ctx u
-    | None ->
-        escapeEvalError ctx
+    let makeEvalResult result ctx =
+        Some result, ctx
 
-let bindEvalResult2 f (x1, x2, ctx) =
-    match x1, x2 with
-    | Some u, Some v ->
-        f ctx u v
-    | _ ->
-        escapeEvalError ctx
+    let makeEvalError msg ctx =
+        None, ctx |> appendError msg
 
-let bindEvalResult3 f (x1, x2, x3, ctx) =
-    match x1, x2, x3 with
-    | Some u, Some v, Some w ->
-        f ctx u v w
-    | _ ->
-        escapeEvalError ctx
+    let escapeEvalError ctx =
+        None, ctx
 
-let processReturn result ctx =
-    match result with
-    | Ok y      -> makeEvalResult y ctx
-    | Error msg -> makeEvalError msg ctx
+    let bindEvalResult f (x, ctx) =
+        match x with
+        | Some u ->
+            f ctx u
+        | None ->
+            escapeEvalError ctx
 
-let processEvalResult f (x, ctx) =
-    match x with
-    | Some u ->
-        processReturn (f u) ctx
-    | None ->
-        escapeEvalError ctx
+    let bindEvalResult2 f (x1, x2, ctx) =
+        match x1, x2 with
+        | Some u, Some v ->
+            f ctx u v
+        | _ ->
+            escapeEvalError ctx
 
-let processEvalResult2 f (x1, x2, ctx) =
-    match x1, x2 with
-    | Some u, Some v ->
-        processReturn (f u v) ctx
-    | _ ->
-        escapeEvalError ctx
+    let bindEvalResult3 f (x1, x2, x3, ctx) =
+        match x1, x2, x3 with
+        | Some u, Some v, Some w ->
+            f ctx u v w
+        | _ ->
+            escapeEvalError ctx
 
-let processEvalResult3 f (x1, x2, x3, ctx) =
-    match x1, x2, x3 with
-    | Some u, Some v, Some w ->
-        processReturn (f u v w) ctx
-    | _ ->
-        escapeEvalError ctx
+    let processReturn result ctx =
+        match result with
+        | Ok y      -> makeEvalResult y ctx
+        | Error msg -> makeEvalError msg ctx
 
-let processEvalResultList f (xs, ctx) =
-    if xs |> List.forall Option.isSome then
-        processReturn (f (xs |> List.map Option.get)) ctx
-    else
-        escapeEvalError ctx
+    let processEvalResult f (x, ctx) =
+        match x with
+        | Some u ->
+            processReturn (f u) ctx
+        | None ->
+            escapeEvalError ctx
 
-let updateContext f (x, ctx) =
-    x, f ctx
+    let processEvalResult2 f (x1, x2, ctx) =
+        match x1, x2 with
+        | Some u, Some v ->
+            processReturn (f u v) ctx
+        | _ ->
+            escapeEvalError ctx
 
-let updateContext2 f (x1, x2, ctx) =
-    x1, x2, f ctx
+    let processEvalResult3 f (x1, x2, x3, ctx) =
+        match x1, x2, x3 with
+        | Some u, Some v, Some w ->
+            processReturn (f u v w) ctx
+        | _ ->
+            escapeEvalError ctx
 
-let updateContext3 f (x1, x2, x3, ctx) =
-    x1, x2, x3, f ctx
+    let processEvalResultList f (xs, ctx) =
+        if xs |> List.forall Option.isSome then
+            processReturn (f (xs |> List.map Option.get)) ctx
+        else
+            escapeEvalError ctx
 
+    let updateContext f (x, ctx) =
+        x, f ctx
+
+    let updateContext2 f (x1, x2, ctx) =
+        x1, x2, f ctx
+
+    let updateContext3 f (x1, x2, x3, ctx) =
+        x1, x2, x3, f ctx
 
 type PendingMethod =
     | PendingMethod of MethodDefinition*SyntaxStmt
 
     member m.Definition =
-        match m with PendingMethod(x, _) -> x
+        m |> function PendingMethod(x, _) -> x
     member m.Body =
-        match m with PendingMethod(_, x) -> x
+        m |> function PendingMethod(_, x) -> x
 
 type PendingKlass =
     | PendingKlass of KlassDefinition*PendingMethod list
 
     member m.Definition =
-        match m with PendingKlass(x, _) -> x
+        m |> function PendingKlass(x, _) -> x
     member m.MethodList =
-        match m with PendingKlass(_, x) -> x
+        m |> function PendingKlass(_, x) -> x
 
 type TranslationSession = 
     { CurrentModule: BasicModuleInfo
       
-      TypeLookup: DictView<string, TypeAccessRecord>
+      TypeLookup: DictView<string, KlassAccessRecord>
       PendingKlassList: PendingKlass list }

@@ -22,7 +22,7 @@ let invalidControlFlow rg ctrl =
     |> createErrorMessage rg
 
 let invalidInstanceReference rg =
-    sprintf "this cannot be referred in static functions"
+    sprintf "cannot refer to keyword <this> in static functions"
     |> createErrorMessage rg
 
 let invalidVariableReference rg name =
@@ -37,12 +37,20 @@ let invalidExpressionCall rg argTypeList =
     sprintf "expression cannot be called with %O" argTypeList
     |> createErrorMessage rg
 
-let invalidFunctionCall rg name argTypeList =
-    sprintf "function %s that takes %O cannot be found" name argTypeList
+let invalidPrivateMethodCall rg name argTypeList =
+    sprintf "method %s taking %O is private and thus cannot be accessed" name argTypeList
     |> createErrorMessage rg
 
-let invalidFunctionResolve rg name argTypeList =
-    sprintf "function %s that takes %O cannot be resolved" name argTypeList
+let invalidInstanceMethodCall rg name argTypeList =
+    sprintf "method %s taking %O cannot be called in a static method" name argTypeList
+    |> createErrorMessage rg
+
+let invalidMethodLookup rg name argTypeList =
+    sprintf "method %s taking %O cannot be found" name argTypeList
+    |> createErrorMessage rg
+
+let invalidMethodResolve rg name argTypeList =
+    sprintf "method %s taking %O cannot be resolved" name argTypeList
     |> createErrorMessage rg
 
 let invalidBinaryOperation rg binOp lhsType rhsType =

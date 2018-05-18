@@ -6,8 +6,11 @@ open Aqua.Ast
 open Aqua.ErrorMessage
 open Aqua.Compiler
 
+open Aqua.Compiler.TranslationContext
+open Aqua.Ast
+
 let existImplicitConversion ctx srcType destType =
-    srcType=destType
+    srcType = destType
 
 let isInvocable ctx signature argTypeList =
     let (FunctionSignature(paramTypeList, _)) = signature
@@ -17,59 +20,97 @@ let isInvocable ctx signature argTypeList =
 
 let isAssignable ctx expr =
     match expr with
-    | Ast_NameAccessExpr(_, mut, _) ->
-        mut = MutabilitySpec.Mutable
-    | Ast_MemberAccessExpr(_, e, name) ->
-        let fieldOwnerName =  e |> getAstExprType |> getTypeName
+    | Ast_NameAccessExpr(_, VariableArgument(_)) ->
+        false
 
-        lookupField ctx fieldOwnerName name
-        |> Option.map FieldDefinition.isMutable
-        |> Option.defaultValue false
+    | Ast_NameAccessExpr(_, VariableLocal(id)) ->
+        lookupVariableById ctx id 
+        |> function 
+           | AstVariableDecl(_, _, mut) -> mut = MutabilitySpec.Mutable
+
+    | Ast_MemberAccessExpr(_, field) ->
+        field.Definition.Mutability = MutabilitySpec.Mutable
+
     | _ ->
         false
 
-let resolveImplicitMethodCall ctx rg funcName argTypeList =
-    []
-
-let resolveExplicitMethodCall ctx rg selfExpr funcName argTypeList =
-    []
-
-let resolveInstanceMethodCall ctx rg instance methodName argList =
+let resolveMethodCallWithType ctx rg typeName methodName argList =
     let argTypeList =
-        argList |> List.map getAstExprType
+        argList |> List.map AstExpr.getType
 
-    let typeName =
-        instance |> getAstExprType |> getTypeName
+    match lookupMethod ctx typeName methodName with
+    | Some (klass, candidates) ->
+        let matchList =
+            candidates
+            |> List.filter (fun def -> isInvocable ctx (MethodDefinition.getSignature def) argTypeList)
 
-    let candidates =
-        lookupMethod ctx typeName methodName
-        |> List.filter (fun def -> isInvocable ctx (MethodDefinition.getSignature def) argTypeList)
+        match matchList with
+        | [x] ->
+            Ok <| MethodReference(klass.Module, klass.Definition, x) 
+        | [] ->
+            Error <| invalidMethodLookup rg methodName argTypeList
+        | _ ->
+            Error <| invalidMethodResolve rg methodName argTypeList
 
-    match candidates with
-    | [x] ->
-        Ok <| Ast_InvocationExpr(CallableInstanceMethod(instance, x), argList)
-    | [] ->
-        Error <| invalidFunctionCall rg methodName argTypeList
-    | _ ->
-        Error <| invalidFunctionResolve rg methodName argTypeList
+    | None ->
+        Error <| invalidMethodLookup rg methodName argTypeList
+
+let resolveExplicitInstanceInvocation ctx rg srcExpr methodName argList =
+    let srcTypeName =
+        srcExpr |> AstExpr.getType |> getTypeName
+
+    resolveMethodCallWithType ctx rg srcTypeName methodName argList
+    |> Result.bind (fun method ->
+                        if ModifierGroup.isPublic method.Definition.Modifiers then
+                            if ModifierGroup.isInstance method.Definition.Modifiers then
+                                Ok <| AstExpr.createInvokeInstance srcExpr method argList
+                            else
+                                Ok <| AstExpr.createInvokeStatic method argList
+                        else
+                            let argTypeList =
+                                    argList |> List.map AstExpr.getType
+
+                            Error <| invalidPrivateMethodCall rg methodName argTypeList)
+
+let resolveImplicitInvocation ctx rg methodName argList =
+    let thisTypeName = 
+        ctx |> getCurrentKlassType |> getTypeName
+    
+    resolveMethodCallWithType ctx rg thisTypeName methodName argList
+    |> Result.bind (fun method ->
+                        if ModifierGroup.isInstance method.Definition.Modifiers then
+                            if isInstanceContext ctx then
+                                let thisExpr =
+                                    ctx |> getCurrentKlassType |> AstExpr.createInstance
+
+                                Ok <| AstExpr.createInvokeInstance thisExpr method argList 
+                            else
+                                let argTypeList =
+                                    argList |> List.map AstExpr.getType
+
+                                Error <| invalidInstanceMethodCall rg methodName argTypeList
+                        else
+                            Ok <| AstExpr.createInvokeStatic method argList)
 
 
 let resolveExpressionCall ctx rg calleeExpr argList =
     let argTypeList =
-        argList |> List.map getAstExprType
+        argList |> List.map AstExpr.getType
 
-    match calleeExpr |> getAstExprType with
+    match calleeExpr |> AstExpr.getType with
     | FunctionTypeIdent(signature) when isInvocable ctx signature argTypeList ->
         Ok <| Ast_InvocationExpr(CallableExpression(calleeExpr, signature), argList)
     | _ ->
         Error <| invalidExpressionCall rg argTypeList
 
+(*
 type SyntaxTypeTranslator =
     TranslationContext -> SyntaxType -> TypeIdent option*TranslationContext
 type ExpressionTranslator =
     TranslationContext -> SyntaxExpr -> AstExpr option*TranslationContext
 type StatementTranslator =
     TranslationContext -> SyntaxStmt -> AstStmt option*TranslationContext
+*)
 
 let translatePair (f, g) ctx x y =
     let x', ctx1 = f ctx x
@@ -93,9 +134,9 @@ let rec translateType ctx type' =
         ctx |> makeEvalResult (SystemTypeIdent category)
 
     | Syn_UserType(rg, name) ->
-        match lookupType ctx name with
+        match lookupKlass ctx name with
         | Some item -> ctx |> makeEvalResult item.Type
-        | None -> ctx |> makeEvalError (invalidUserType rg name)
+        | None      -> ctx |> makeEvalError (invalidUserType rg name)
 
     | Syn_FunctionType(_, paramTypeList, retType) ->
         retType::paramTypeList
@@ -113,32 +154,37 @@ let rec translateExpr ctx expr =
     //
     let translateInstanceExpr rg =
         if isInstanceContext ctx then
-            let t = (getCurrentKlassType ctx)
-            ctx |> makeEvalResult (Ast_InstanceExpr t)
+            let typeAnnot = 
+                getCurrentKlassType ctx
+
+            ctx |> makeEvalResult (AstExpr.createInstance typeAnnot)
         else
             ctx |> makeEvalError (invalidInstanceReference rg)
 
     let translateLiteralExpr rg value =
-        ctx |> makeEvalResult (Ast_LiteralExpr value)
+        ctx |> makeEvalResult (AstExpr.createLiteral value)
 
     let translateNameAccessExpr rg name =
         match lookupVariable ctx name with
         | Some (ArgumentLookupItem(id, _, t)) ->
-            ctx |> makeEvalResult (Ast_NameAccessExpr(t, MutabilitySpec.Readonly, VariableArgument id))
+            ctx |> makeEvalResult (AstExpr.createArgumentAccess t id)
+
         | Some (VariableLookupItem(id, _, t, mut)) ->
-            ctx |> makeEvalResult (Ast_NameAccessExpr(t, mut, VariableLocal id))
+            ctx |> makeEvalResult (AstExpr.createLocalAccess t id)
+
         | None ->
             ctx |> makeEvalError (invalidVariableReference rg name)
 
-    let translateMemberAccessExpr rg child name =
-        translateExpr ctx child
+    let translateMemberAccessExpr rg srcExpr name =
+        translateExpr ctx srcExpr
         |> processEvalResult
                (fun e ->
-                    let t = getAstExprType e
-                    let typeName = getTypeName t
+                    let typeName = e |> AstExpr.getType |> getTypeName
                     match lookupField ctx typeName name with
-                    | Some x ->
-                        Ok <| Ast_MemberAccessExpr(FieldDefinition.getType x, e, name)
+                    | Some (klass, field) ->
+                        let ref = FieldReference(klass.Module, klass.Definition, field)
+                        Ok <| Ast_MemberAccessExpr(e, ref)
+
                     | None ->
                         Error <| invalidFieldReference rg typeName name)
 
@@ -156,20 +202,22 @@ let rec translateExpr ctx expr =
         let maybeAstArgs, newCtx = List.mapFold translateExpr ctx args
 
         if maybeAstArgs |> List.forall Option.isSome then
-            let astArgs = maybeAstArgs |> List.map Option.get
+            let astArgList = maybeAstArgs |> List.map Option.get
 
             match calleeExpr with
+            | Syn_NameAccessExpr(nameRange, methodName) ->
+                ctx 
+                |> processReturn (resolveImplicitInvocation ctx nameRange methodName astArgList)
             | Syn_MemberAccessExpr(nameRange, srcExpr, methodName) when true ->
                 translateExpr newCtx srcExpr
                 |> processEvalResult
                        (fun e ->
-                            let typeName = e |> getAstExprType |> getTypeName
-                            resolveInstanceMethodCall ctx nameRange e methodName astArgs)
+                            resolveExplicitInstanceInvocation ctx nameRange e methodName astArgList)
             | _ ->
                 translateExpr newCtx calleeExpr
                 |> processEvalResult
                        (fun e ->
-                            resolveExpressionCall ctx calleeExpr.Range e astArgs)
+                            resolveExpressionCall ctx calleeExpr.Range e astArgList)
 
         else
             newCtx |> escapeEvalError
@@ -178,8 +226,8 @@ let rec translateExpr ctx expr =
         translatePair (translateExpr, translateExpr) ctx lhs rhs
         |> processEvalResult2
                (fun e1 e2 ->
-                    let lhsType = getAstExprType e1
-                    let rhsType = getAstExprType e2
+                    let lhsType = AstExpr.getType e1
+                    let rhsType = AstExpr.getType e2
 
                     match op with
                     | Op_Assign ->
@@ -247,7 +295,7 @@ let rec translateStmt ctx stmt =
         translateExpr ctx expr
         |> processEvalResult
                (fun e ->
-                    let exprType = e |> getAstExprType
+                    let exprType = e |> AstExpr.getType
                     if existImplicitConversion ctx exprType constraintType then
                         Ok <| e
                     else
@@ -274,7 +322,7 @@ let rec translateStmt ctx stmt =
             translateExpr ctx init
             |> bindEvalResult
                    (fun newCtx value ->
-                        let initType = getAstExprType value
+                        let initType = AstExpr.getType value
                         let id = getNextVarId newCtx
 
                         match typeAnnot with
@@ -337,13 +385,13 @@ let rec translateStmt ctx stmt =
     //
     //
     match stmt with
-    | Syn_ExpressionStmt(rg, expr) -> translateExpressionStmt rg expr
-    | Syn_VarDeclStmt(rg, mut, name, typeAnnot, init) -> translateVarDeclStmt rg mut name typeAnnot init
-    | Syn_ChoiceStmt(rg, pred, pBranch, nBranch) -> translateChoiceStmt rg pred pBranch nBranch
-    | Syn_WhileStmt(rg, pred, body) -> translateWhileStmt rg pred body
-    | Syn_ControlFlowStmt(rg, ctrl) -> translateControlFlowStmt rg ctrl
-    | Syn_ReturnStmt(rg, maybeExpr) -> translateReturnStmt rg maybeExpr
-    | Syn_CompoundStmt(rg, children) -> translateCompoundStmt rg children
+    | Syn_ExpressionStmt(rg, expr)                      -> translateExpressionStmt rg expr
+    | Syn_VarDeclStmt(rg, mut, name, typeAnnot, init)   -> translateVarDeclStmt rg mut name typeAnnot init
+    | Syn_ChoiceStmt(rg, pred, pBranch, nBranch)        -> translateChoiceStmt rg pred pBranch nBranch
+    | Syn_WhileStmt(rg, pred, body)                     -> translateWhileStmt rg pred body
+    | Syn_ControlFlowStmt(rg, ctrl)                     -> translateControlFlowStmt rg ctrl
+    | Syn_ReturnStmt(rg, maybeExpr)                     -> translateReturnStmt rg maybeExpr
+    | Syn_CompoundStmt(rg, children)                    -> translateCompoundStmt rg children
 
 let translateMethod env body =
     let result, ctx = translateStmt (createContext env) body

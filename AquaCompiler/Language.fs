@@ -10,6 +10,7 @@ type BuiltinType =
     | Float
     | Object
 
+
 type BinaryOp =
     | Op_Assign
 
@@ -124,9 +125,9 @@ and FunctionSignature =
     | FunctionSignature of TypeIdent list * TypeIdent
 
     member m.ParamTypeList =
-        match m with | FunctionSignature(params', _) -> params'
+        m |> function FunctionSignature(params', _) -> params'
     member m.ReturnType =
-        match m with | FunctionSignature(_, ret) -> ret
+        m |> function FunctionSignature(_, ret) -> ret
 
     override m.ToString() =
         sprintf "(%s) -> %A" (String.Join(",", m.ParamTypeList)) (m.ReturnType)
@@ -180,7 +181,6 @@ type MethodDefinition =
         m |> function MethodDefinition(parameters = x) -> x
     member m.ReturnType =
         m |> function MethodDefinition(returnType = x) -> x
-        
 
 
 module MethodDefinition =
@@ -262,6 +262,7 @@ module KlassDefinition =
     let getMethods (def: KlassDefinition) = 
         def.Methods
 
+
 (*
 type EnumItem =
     | EnumItem of name:string
@@ -269,9 +270,9 @@ type EnumDefinition =
     | EnumDefinition of name:string * values:EnumItem list
 
     member m.Name =
-        match m with | EnumDefinition(x, _) -> x
+        m |> function EnumDefinition(x, _) -> x
     member m.Values =
-        match m with | EnumDefinition(_, x) -> x
+        m |> function EnumDefinition(_, x) -> x
 *)
 
 type BasicModuleInfo =
