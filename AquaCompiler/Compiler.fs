@@ -116,7 +116,6 @@ let createContext env =
 module TranslationContext =
     // element proxy
     //
-
     let getCurrentKlass ctx =
         ctx.Environment.CurrentKlass
 
@@ -127,10 +126,10 @@ module TranslationContext =
         let env = ctx.Environment
         UserTypeIdent(env.CurrentModule, env.CurrentKlass.Name)
 
-    let getMethodName ctx =
+    let getCurrentMethodName ctx =
         ctx |> getCurrentMethod |> MethodDefinition.getName
 
-    let getReturnType ctx =
+    let getCurrentReturnType ctx =
         ctx |> getCurrentMethod |> MethodDefinition.getReturnType
 
     let isInstanceContext ctx =

@@ -27,6 +27,9 @@ type MethodReference =
     member m.Definition =
         m |> function MethodReference(_, _, x) -> x
 
+    member m.OwnerType =
+        UserTypeIdent(m.Module, m.Klass.Name)
+
 type FieldReference =
     | FieldReference of ModuleIdent*KlassDefinition*FieldDefinition
 
@@ -36,6 +39,15 @@ type FieldReference =
         m |> function FieldReference(_, x, _) -> x
     member m.Definition =
         m |> function FieldReference(_, _, x) -> x
+
+    member m.OwnerType =
+        UserTypeIdent(m.Module, m.Klass.Name)
+
+let makeMethodReference (klassRef: KlassReference) methodDef =
+    MethodReference(klassRef.Module, klassRef.Definition, methodDef)
+
+let makeFieldReference (klassRef: KlassReference) fieldDef =
+    FieldReference(klassRef.Module, klassRef.Definition, fieldDef)
 
 // AstExpr
 //
@@ -47,8 +59,9 @@ type AstExpr =
     | Ast_MemberAccessExpr  of AstExpr*FieldReference
     | Ast_TypeCheckExpr     of AstExpr*TypeIdent
     | Ast_TypeCastExpr      of AstExpr*TypeIdent
-    | Ast_InvocationExpr    of CallableReference*AstExpr list
     | Ast_BinaryExpr        of TypeIdent*BinaryOp*AstExpr*AstExpr
+    | Ast_InvocationExpr    of CallableReference*AstExpr list
+    | Ast_NewObjectExpr     of MethodReference*AstExpr list
 
     member m.Type =
         match m with
@@ -56,7 +69,7 @@ type AstExpr =
         | Ast_LiteralExpr(literal)          -> literal.Type
         | Ast_NameAccessExpr(t, _)          -> t
         | Ast_MemberAccessExpr(_, ref)      -> ref.Definition.Type
-        | Ast_TypeCheckExpr(_, _)           -> kBoolType
+        | Ast_TypeCheckExpr(_, _)           -> TypeIdent.kBoolType
         | Ast_TypeCastExpr(_, t)            -> t
         | Ast_BinaryExpr(t, _, _, _)        -> t
         | Ast_InvocationExpr(callable, _)   ->
@@ -67,6 +80,8 @@ type AstExpr =
                 -> r.Definition.ReturnType
             | CallableExpression(_, s)
                 -> s.ReturnType
+        | Ast_NewObjectExpr(ctor, _) ->
+            ctor.OwnerType
 
 and VariableReference =
     | VariableArgument of int
@@ -80,6 +95,9 @@ and CallableReference =
 module AstExpr =
     let getType (expr: AstExpr) =
         expr.Type
+
+    let getTypeName expr =
+        (getType expr).ToString()
 
     let createInstance typeAnnot =
         Ast_InstanceExpr typeAnnot
@@ -101,6 +119,9 @@ module AstExpr =
 
     let createInvokeStatic method argExprList =
         Ast_InvocationExpr (CallableStaticMethod method, argExprList)
+
+    let createNewObject ctor argExprList =
+        Ast_NewObjectExpr (ctor, argExprList)
 
 // AstStmt
 //
@@ -125,3 +146,6 @@ type AstMethod =
 
 type AstKlass =
     | AstKlass of KlassDefinition*AstMethod list
+
+type AstModule =
+    | AstModule of ModuleIdent*AstKlass list

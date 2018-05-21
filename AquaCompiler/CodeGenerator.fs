@@ -6,11 +6,20 @@ open Aqua.Bytecode
 open CollectionUtils
 
 type CodeGenContext =
-    { LoopStart: int }
+    { LoopStart: int 
+      LoopBreakCallback: (Bytecode -> unit) list }
 
-let rec compileExpr ctx codeBuf expr =
+module CodeGenContext =
+    let createContext loopStart =
+        { LoopStart = loopStart 
+          LoopBreakCallback = [] }
+
+    let appendBreakCallback callback ctx =
+        { ctx with LoopBreakCallback = callback::ctx.LoopBreakCallback }
+
+let rec compileExpr codeBuf expr =
     let emitBytecode = CodeGen.appendBytecode codeBuf
-    let emitExpr = compileExpr ctx codeBuf
+    let emitExpr = compileExpr codeBuf
 
     match expr with
     | Ast_InstanceExpr(t) ->
@@ -30,54 +39,56 @@ let rec compileExpr ctx codeBuf expr =
         | VariableLocal id ->
             emitBytecode <| LoadLocal id
 
-    | Ast_MemberAccessExpr(object, field) ->
+    | Ast_MemberAccessExpr(object, fieldRef) ->
         emitExpr <| object
-        emitBytecode <| LoadField (field.Definition.Name)
+        emitBytecode <| LoadField fieldRef
 
-    | Ast_TypeCheckExpr(child, testType) ->
-        if child.Type.IsReferenceType then
-            emitExpr <| child
+    | Ast_TypeCheckExpr(expr, testType) ->
+        if expr.Type.IsReferenceType then
+            emitExpr <| expr
             
-            emitBytecode <| CastObj child.Type
+            emitBytecode <| CastObj testType
             emitBytecode <| CastBool
         else
-            match child.Type, testType with
-            | SystemTypeIdent(c1), SystemTypeIdent(c2) ->
+            match expr.Type, testType with
+            | TypeIdent.OfBuiltinType(c1), TypeIdent.OfBuiltinType(c2) ->
                 emitBytecode <| PushI32 (if c1=c2 then 1 else 0)
             | _ ->
                 emitBytecode <| PushI32 0
 
-    | Ast_TypeCastExpr(child, targetType) ->
-        emitExpr <| child
+    | Ast_TypeCastExpr(expr, targetType) ->
+        emitExpr <| expr
 
-        if child.Type.IsReferenceType then
+        if expr.Type.IsReferenceType then
             emitBytecode <| CastObj targetType
         else
             let opcode =
                 match targetType with
-                | SystemTypeIdent(BuiltinType.Bool)  -> CastBool
-                | SystemTypeIdent(BuiltinType.Int)   -> CastI32
-                | SystemTypeIdent(BuiltinType.Float) -> CastF32
+                | TypeIdent.OfBoolType  -> CastBool
+                | TypeIdent.OfIntType   -> CastI32
+                | TypeIdent.OfFloatType -> CastF32
                 | _ -> failwith "not implemented"
 
             emitBytecode <| opcode
 
     | Ast_InvocationExpr(callee, args) ->
-        args |> List.iter (fun x -> emitExpr <| x)
+        args |> List.iter emitExpr
         match callee with
         | CallableInstanceMethod(instance, methodRef) ->
             // TODO: this is actually incorrect
             //       overloading is not considered yet
-            let typeName = instance |> AstExpr.getType |> getTypeName
-
             emitExpr <| instance
-            emitBytecode <| Call (typeName + "." + methodRef.Definition.Name)
+            emitBytecode <| Call methodRef
 
         | CallableStaticMethod(methodRef) ->
-            emitBytecode <| Call (methodRef.Klass.Name + "." + methodRef.Definition.Name)
+            emitBytecode <| Call methodRef
 
         | CallableExpression(calledExpr, sigature) ->
             failwith "expression call not supported yet"
+
+    | Ast_NewObjectExpr(ctor, args) ->
+        args |> List.iter emitExpr
+        emitBytecode <| NewObj ctor
 
     | Ast_BinaryExpr(_, op, lhs, rhs) ->
         match op with
@@ -96,7 +107,7 @@ let rec compileExpr ctx codeBuf expr =
                 emitExpr <| rhs
                 emitBytecode <| Dup
                 emitExpr <| object
-                emitBytecode <| StoreField (field.Definition.Name)
+                emitBytecode <| StoreField field
 
             | _ ->
                 failwith "impossible case"
@@ -128,63 +139,69 @@ and kBinaryOpTranslationMap =
     |> DictView.ofSeq
 
 // TODO: eliminate `ignore`
-let rec compileStmt ctx codeBuf stmt =
+let rec compileStmt codeBuf ctx stmt =
     let emitBytecode = CodeGen.appendBytecode codeBuf
-    let emitStmt = compileStmt ctx codeBuf
-    let emitExpr = compileExpr ctx codeBuf
+    let emitExpr = compileExpr codeBuf
 
     match stmt with
     | Ast_ExpressionStmt(expr) ->
         emitExpr expr
-        emitBytecode <| Pop
 
-        ignore
+        if not <| (AstExpr.getType expr).IsUnitType then
+            emitBytecode <| Pop
+
+        ctx
 
     | Ast_VarDeclStmt(id, t, init) ->
         emitExpr init
         emitBytecode <| StoreLocal id
 
-        ignore
+        ctx
 
     | Ast_ChoiceStmt(pred, pos, negOpt) ->
         emitExpr pred
         let patchNegJump = CodeGen.appendDummy codeBuf
-        let patchPosBreak = emitStmt pos
+        let ctx1 = compileStmt codeBuf ctx pos
 
         match negOpt with
         | Some neg ->
             let patchPosJump = CodeGen.appendDummy codeBuf
             patchNegJump <| JumpOnFalse (CodeGen.extractNextIndex codeBuf)
-            let patchNegBreak = emitStmt neg
+            let ctx2 = compileStmt codeBuf ctx1 neg
             patchPosJump <| Jump (CodeGen.extractNextIndex codeBuf)
 
-            (fun bytecode -> do patchPosBreak bytecode; do patchNegBreak bytecode)
+            ctx2
 
         | None ->
             patchNegJump <| JumpOnFalse (CodeGen.extractNextIndex codeBuf)
             
-            patchPosBreak
+            ctx1
 
     | Ast_WhileStmt(pred, body) ->
-        let startIndex = CodeGen.extractNextIndex codeBuf
+        let loopStart = CodeGen.extractNextIndex codeBuf
 
         emitExpr pred
         let patchNegJump = CodeGen.appendDummy codeBuf
-        let patchBreak = compileStmt { LoopStart = startIndex } codeBuf body
-        emitBytecode <| Jump startIndex
+        let ctx' = compileStmt codeBuf (CodeGenContext.createContext loopStart) body
+        emitBytecode <| Jump loopStart
 
-        patchNegJump <| JumpOnFalse (CodeGen.extractNextIndex codeBuf)
-        patchBreak <| Jump (CodeGen.extractNextIndex codeBuf)
+        let loopEnd = (CodeGen.extractNextIndex codeBuf)
+        
+        patchNegJump <| JumpOnFalse loopEnd
 
-        ignore
+        ctx'.LoopBreakCallback
+        |> List.iter (fun patch -> patch (Jump loopEnd))
+
+        ctx
 
     | Ast_ControlFlowStmt(mode) ->
         match mode with
         | ControlFlow.Break -> 
-            CodeGen.appendDummy codeBuf
+            ctx |> CodeGenContext.appendBreakCallback (CodeGen.appendDummy codeBuf)
+
         | ControlFlow.Continue ->
             emitBytecode <| Jump ctx.LoopStart
-            ignore
+            ctx
 
     | Ast_ReturnStmt(exprOpt) ->
         match exprOpt with
@@ -193,13 +210,10 @@ let rec compileStmt ctx codeBuf stmt =
 
         emitBytecode <| Ret
 
-        ignore
+        ctx
 
     | Ast_CompoundStmt(children) ->
-        let patchList =
-            List.map emitStmt children
-            //|> List.filter (fun patch -> obj.ReferenceEquals(patch, ignore) |> not)
-
-        fun bytecode -> patchList |> List.iter (fun patch -> patch bytecode)
+        children 
+        |> List.fold (compileStmt codeBuf) ctx
 
 let compileModule = ()

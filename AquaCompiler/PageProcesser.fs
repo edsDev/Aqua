@@ -29,7 +29,7 @@ let rec private translateTypeListLite lookupProxy typeList =
                                let paramsStub = ts |> List.tail
                                let returnStub = ts |> List.head
 
-                               makeFunctionTypeIdent paramsStub returnStub)
+                               TypeIdent.makeFunctionType paramsStub returnStub)
 
     let resultList = List.map translateTypeAux typeList
     let isOk = function | Ok _ -> true | Error _ -> false
@@ -161,14 +161,17 @@ let processModule (loader: ModuleLoader) decl =
     let typeLookup =
         DictView.ofSeq <| seq {
             for PendingKlass(def, _) in pendingKlassList do
-                let klassType = UserTypeIdent(currentModuleName, def.Name)
-                yield (getTypeName klassType), (createTypeLookupItem currentModuleName def)
+                let klassType = TypeIdent.makeUserType currentModuleName def.Name
+                let klassItem = createTypeLookupItem currentModuleName def
 
+                // shortcut lookup
+                yield (def.Name), klassItem
+                // full-name lookup
+                yield (TypeIdent.getTypeName klassType), klassItem
         }
 
     if errorBuffer.Count = 0 then
         Ok <| { CurrentModule = currentModule
-                
                 TypeLookup = typeLookup
                 PendingKlassList = pendingKlassList }
     else

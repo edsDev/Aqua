@@ -112,6 +112,16 @@ type TypeIdent =
     // aggregate function type
     | FunctionTypeIdent of FunctionSignature
 
+    member m.IsUnitType =
+        match m with
+        | SystemTypeIdent(BuiltinType.Unit) -> true
+        | _ -> false
+
+    member m.IsBuiltinType =
+        match m with
+        | SystemTypeIdent(_) -> true
+        | _ -> false
+
     member m.IsReferenceType =
         match m with
         | SystemTypeIdent(BuiltinType.Object)
@@ -120,6 +130,20 @@ type TypeIdent =
             true
         | _ ->
             false
+
+    override m.ToString() =
+        match m with
+        | SystemTypeIdent(case) ->
+            match case with
+            | BuiltinType.Unit      -> "unit"
+            | BuiltinType.Bool      -> "bool"
+            | BuiltinType.Int       -> "int"
+            | BuiltinType.Float     -> "float"
+            | BuiltinType.Object    -> "object"
+        | UserTypeIdent(srcModule, name) ->
+            srcModule.ToString() + "::" + name
+        | FunctionTypeIdent(sigature) ->
+            "undefined"
 
 and FunctionSignature =
     | FunctionSignature of TypeIdent list * TypeIdent
@@ -132,23 +156,37 @@ and FunctionSignature =
     override m.ToString() =
         sprintf "(%s) -> %A" (String.Join(",", m.ParamTypeList)) (m.ReturnType)
 
-// shortcuts for TypeStub construction
-//
-let kUnitType = SystemTypeIdent BuiltinType.Unit
-let kBoolType = SystemTypeIdent BuiltinType.Bool
-let kIntType = SystemTypeIdent BuiltinType.Int
-let kFloatType = SystemTypeIdent BuiltinType.Float
-let kObjectType = SystemTypeIdent BuiltinType.Object
+module TypeIdent =
+    let kUnitType = SystemTypeIdent BuiltinType.Unit
+    let kBoolType = SystemTypeIdent BuiltinType.Bool
+    let kIntType = SystemTypeIdent BuiltinType.Int
+    let kFloatType = SystemTypeIdent BuiltinType.Float
+    let kObjectType = SystemTypeIdent BuiltinType.Object
 
-let makeFunctionTypeIdent paramTypes retType =
-    FunctionTypeIdent <| FunctionSignature(paramTypes, retType)
+    let makeUserType moduleName typeName =
+        UserTypeIdent(moduleName, typeName)
 
-let getTypeName stub =
-    match stub with
-    | SystemTypeIdent(t)                 -> t.ToString()
-    | UserTypeIdent(moduleName, name)    -> moduleName.ToString() + "." + name
-    | FunctionTypeIdent(s)               -> s.ToString()
+    let makeFunctionType paramTypeList retType =
+        FunctionTypeIdent <| FunctionSignature(paramTypeList, retType)
 
+    let getTypeName (ident: TypeIdent) =
+        ident.ToString()
+
+    let (|OfUnitType|_|) typeIdent =
+        if typeIdent = kUnitType then Some () else None
+    let (|OfBoolType|_|) typeIdent =
+        if typeIdent = kBoolType then Some () else None
+    let (|OfIntType|_|) typeIdent =
+        if typeIdent = kIntType then Some () else None
+    let (|OfFloatType|_|) typeIdent =
+        if typeIdent = kFloatType then Some () else None
+    let (|OfObjectType|_|) typeIdent =
+        if typeIdent = kObjectType then Some () else None
+
+    let (|OfBuiltinType|_|) typeIdent =
+        match typeIdent with
+        | SystemTypeIdent(t) -> Some t
+        | _                  -> None
 
 // Literal
 //
@@ -159,8 +197,8 @@ type Literal =
 
     member m.Type =
         match m with
-        | BoolConst _ -> kBoolType
-        | IntConst _ -> kIntType
+        | BoolConst _ -> TypeIdent.kBoolType
+        | IntConst _ -> TypeIdent.kIntType
 
 // Definitions
 //

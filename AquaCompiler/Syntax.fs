@@ -22,12 +22,17 @@ type SyntaxType =
         | Syn_UserType(rg, _)           -> rg
         | Syn_FunctionType(rg, _, _)    -> rg
 
+module SyntaxType =
+    let getRange (syn: SyntaxType) =
+        syn.Range
+
 type SyntaxExpr =
     | Syn_InstanceExpr      of SynRange
     | Syn_LiteralExpr       of SynRange*Literal
     | Syn_NameAccessExpr    of SynRange*string
     | Syn_MemberAccessExpr  of SynRange*SyntaxExpr*string
     | Syn_InvocationExpr    of SynRange*SyntaxExpr*SyntaxExpr list
+    | Syn_NewObjectExpr     of SynRange*SyntaxType*SyntaxExpr list
     | Syn_TypeCheckExpr     of SynRange*SyntaxExpr*SyntaxType
     | Syn_TypeCastExpr      of SynRange*SyntaxExpr*SyntaxType
     | Syn_BinaryExpr        of SynRange*BinaryOp*SyntaxExpr*SyntaxExpr
@@ -39,9 +44,14 @@ type SyntaxExpr =
         | Syn_NameAccessExpr(rg, _)         -> rg
         | Syn_MemberAccessExpr(rg, _, _)    -> rg
         | Syn_InvocationExpr(rg, _, _)      -> rg
+        | Syn_NewObjectExpr(rg, _, _)       -> rg
         | Syn_TypeCheckExpr(rg, _, _)       -> rg
         | Syn_TypeCastExpr(rg, _, _)        -> rg
         | Syn_BinaryExpr(rg, _, _, _)       -> rg
+
+module SyntaxExpr =
+    let getRange (syn: SyntaxExpr) =
+        syn.Range
 
 type SyntaxStmt =
     | Syn_ExpressionStmt    of SynRange*SyntaxExpr
@@ -61,6 +71,10 @@ type SyntaxStmt =
         | Syn_ControlFlowStmt(rg, _)        -> rg
         | Syn_ReturnStmt(rg, _)             -> rg
         | Syn_CompoundStmt(rg, _)           -> rg
+
+module SyntaxStmt =
+    let getRange (syn: SyntaxStmt) =
+        syn.Range
 
 type MethodDeclarator =
     | MethodDeclarator of (string*SyntaxType) list*SyntaxType

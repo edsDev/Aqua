@@ -214,29 +214,9 @@ module private ParsecImpl =
 
     // [Syntax Element] expression
     //
-    let pInstanceExpr =
-        skipString_ws "this"
-        |> withRange0 Syn_InstanceExpr
-        |> pullSpace
-
-    let pLiteralExpr =
-        pLiteral
-        |> withRange1 Syn_LiteralExpr
-        |> pullSpace
-
-    let pNamedExpr =
-        pIdent
-        |> withRange1 Syn_NameAccessExpr
-        |> pullSpace
 
     let pExpr =
         let opp = OperatorPrecedenceParser()
-
-        let pAtomicExpr =
-            choice [ pInstanceExpr
-                     pLiteralExpr
-                     pNamedExpr
-                     opp.ExpressionParser |> betweenParathe |> pullSpace ]
 
         let pMemberAccessSuffix =
             let pDot = skipChar_ws '.'
@@ -250,6 +230,34 @@ module private ParsecImpl =
             |> betweenParathe
             |> withRange1 InvocationSuffix
             |> pullSpace
+
+        let pInstanceExpr =
+            skipString_ws "this"
+            |> withRange0 Syn_InstanceExpr
+            |> pullSpace
+
+        let pNewObjectExpr =
+            tuple2 (skipString_ws "new" >>. pCustomType) 
+                   (opp.ExpressionParser |> sepByComma |> betweenParathe)
+            |> withRange2 Syn_NewObjectExpr
+            |> pullSpace
+
+        let pLiteralExpr =
+            pLiteral
+            |> withRange1 Syn_LiteralExpr
+            |> pullSpace
+
+        let pNamedExpr =
+            pIdent
+            |> withRange1 Syn_NameAccessExpr
+            |> pullSpace
+
+        let pAtomicExpr =
+            choice [ pInstanceExpr
+                     pNewObjectExpr
+                     pLiteralExpr
+                     pNamedExpr
+                     opp.ExpressionParser |> betweenParathe |> pullSpace ]
 
         let pExprWithSuffix =
             let exprSuffix = pMemberAccessSuffix <|> pInvocationSuffix
@@ -418,10 +426,25 @@ module private ParsecImpl =
             pAccess .>>. pLifetime
             |>> fun (am, lm) -> { AccessType = am; LifetimeType = lm }
 
+        let pConstructorDecl =
+            let pCtor = skipString_ws "constructor"
+            let pParamList =
+                pIdent_ws .>>. pTypeAnnot
+                |> sepByComma
+                |> betweenParathe
+                |> pullSpace
+            let pBody = pCompoundStmt
+
+            let ret = Syn_SystemType(SynRange.Empty, BuiltinType.Unit)
+            pipe3 (pModifierGroup .>> pCtor) pParamList pBody
+                  (fun modifiers paramList body -> MethodDecl("$ctor", modifiers, MethodDeclarator(paramList, ret), body))
+            |>> MethodItem
+            <?> "constructor declaration"
+
         let pMethodDecl =
-            let pfun = skipString_ws "fun"
-            let pname = pIdent_ws
-            let pdeclarator =
+            let pFun = skipString_ws "fun"
+            let pName = pIdent_ws
+            let pDeclarator =
                 let paramList =
                     pIdent_ws .>>. pTypeAnnot
                     |> sepByComma
@@ -433,9 +456,9 @@ module private ParsecImpl =
 
                 paramList .>>. retType |>> MethodDeclarator
 
-            let pbody = pCompoundStmt
+            let pBody = pCompoundStmt
 
-            pipe4 (pModifierGroup .>> pfun) pname pdeclarator pbody
+            pipe4 (pModifierGroup .>> pFun) pName pDeclarator pBody
                   (fun modifiers name decl body -> MethodDecl(name, modifiers, decl, body))
             |>> MethodItem
             <?> "method declaration"
@@ -447,7 +470,11 @@ module private ParsecImpl =
             <?> "field declaration"
 
         let pKlassBody =
-            many (attempt pFieldDecl <|> attempt pMethodDecl)
+            [ attempt pFieldDecl
+              attempt pMethodDecl
+              attempt pConstructorDecl ]
+            |> choice
+            |> many
             |> betweenBrace
             |> pullSpace
 

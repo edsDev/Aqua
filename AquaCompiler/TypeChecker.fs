@@ -46,7 +46,7 @@ let resolveMethodCallWithType ctx rg typeName methodName argList =
 
         match matchList with
         | [x] ->
-            Ok <| MethodReference(klass.Module, klass.Definition, x) 
+            Ok <| makeMethodReference klass x
         | [] ->
             Error <| invalidMethodLookup rg methodName argTypeList
         | _ ->
@@ -57,7 +57,7 @@ let resolveMethodCallWithType ctx rg typeName methodName argList =
 
 let resolveExplicitInstanceInvocation ctx rg srcExpr methodName argList =
     let srcTypeName =
-        srcExpr |> AstExpr.getType |> getTypeName
+        srcExpr |> AstExpr.getTypeName
 
     resolveMethodCallWithType ctx rg srcTypeName methodName argList
     |> Result.bind (fun method ->
@@ -74,7 +74,7 @@ let resolveExplicitInstanceInvocation ctx rg srcExpr methodName argList =
 
 let resolveImplicitInvocation ctx rg methodName argList =
     let thisTypeName = 
-        ctx |> getCurrentKlassType |> getTypeName
+        ctx |> getCurrentKlassType |> TypeIdent.getTypeName
     
     resolveMethodCallWithType ctx rg thisTypeName methodName argList
     |> Result.bind (fun method ->
@@ -92,7 +92,6 @@ let resolveImplicitInvocation ctx rg methodName argList =
                         else
                             Ok <| AstExpr.createInvokeStatic method argList)
 
-
 let resolveExpressionCall ctx rg calleeExpr argList =
     let argTypeList =
         argList |> List.map AstExpr.getType
@@ -102,6 +101,11 @@ let resolveExpressionCall ctx rg calleeExpr argList =
         Ok <| Ast_InvocationExpr(CallableExpression(calleeExpr, signature), argList)
     | _ ->
         Error <| invalidExpressionCall rg argTypeList
+
+let resolveConstructor ctx rg typeName argList =
+    resolveMethodCallWithType ctx rg typeName "$ctor" argList
+    |> Result.map (fun ctor -> AstExpr.createNewObject ctor argList)
+    
 
 (*
 type SyntaxTypeTranslator =
@@ -146,7 +150,7 @@ let rec translateType ctx type' =
                     let paramsStub = ts |> List.tail
                     let returnStub = ts |> List.head
 
-                    Ok <| makeFunctionTypeIdent paramsStub returnStub)
+                    Ok <| TypeIdent.makeFunctionType paramsStub returnStub)
 
 let rec translateExpr ctx expr =
 
@@ -169,21 +173,21 @@ let rec translateExpr ctx expr =
         | Some (ArgumentLookupItem(id, _, t)) ->
             ctx |> makeEvalResult (AstExpr.createArgumentAccess t id)
 
-        | Some (VariableLookupItem(id, _, t, mut)) ->
+        | Some (VariableLookupItem(id, _, t, _)) ->
             ctx |> makeEvalResult (AstExpr.createLocalAccess t id)
 
         | None ->
             let typeName = 
-                ctx |> getCurrentKlassType |> getTypeName
+                ctx |> getCurrentKlassType |> TypeIdent.getTypeName
 
             match lookupField ctx typeName name with
             | Some (klass, field) ->
                 let thisExpr =
                     ctx |> getCurrentKlassType |> AstExpr.createInstance
-                let ref = 
-                    FieldReference(klass.Module, klass.Definition, field)
+                let fieldRef = 
+                    makeFieldReference klass field
 
-                ctx |> makeEvalResult (AstExpr.createFieldAccess thisExpr ref)
+                ctx |> makeEvalResult (AstExpr.createFieldAccess thisExpr fieldRef)
 
             | None ->
                 ctx |> makeEvalError (invalidVariableReference rg name)
@@ -192,11 +196,10 @@ let rec translateExpr ctx expr =
         translateExpr ctx srcExpr
         |> processEvalResult
                (fun e ->
-                    let typeName = e |> AstExpr.getType |> getTypeName
+                    let typeName = e |> AstExpr.getTypeName
                     match lookupField ctx typeName name with
                     | Some (klass, field) ->
-                        let ref = FieldReference(klass.Module, klass.Definition, field)
-                        Ok <| Ast_MemberAccessExpr(e, ref)
+                        Ok <| AstExpr.createFieldAccess e (makeFieldReference klass field)
 
                     | None ->
                         Error <| invalidFieldReference rg typeName name)
@@ -219,7 +222,7 @@ let rec translateExpr ctx expr =
 
             match calleeExpr with
             | Syn_NameAccessExpr(nameRange, methodName) ->
-                ctx 
+                newCtx 
                 |> processReturn (resolveImplicitInvocation ctx nameRange methodName astArgList)
             | Syn_MemberAccessExpr(nameRange, srcExpr, methodName) when true ->
                 translateExpr newCtx srcExpr
@@ -235,57 +238,90 @@ let rec translateExpr ctx expr =
         else
             newCtx |> escapeEvalError
 
+    let translateNewObjectExpr rg type' args =
+
+        // try translate arguments provided
+        let maybeAstArgs, newCtx = List.mapFold translateExpr ctx args
+
+        if maybeAstArgs |> List.forall Option.isSome then
+            let astArgList = maybeAstArgs |> List.map Option.get
+
+            translateType newCtx type'
+            |> processEvalResult
+                   (fun t -> resolveConstructor ctx rg (t |> TypeIdent.getTypeName) astArgList)
+
+        else
+            newCtx |> escapeEvalError
+
     let translateBinaryExpr rg op lhs rhs =
+        let processBuiltinBinaryExpr e1 e2 =
+            let lhsType = AstExpr.getType e1
+            let rhsType = AstExpr.getType e2
+
+            assert lhsType.IsBuiltinType
+            assert rhsType.IsBuiltinType
+
+            match op with
+            | Op_Assign ->
+                if not <| isAssignable ctx e1 then
+                    Error <| invalidAssignment (SyntaxExpr.getRange lhs)
+                else if not <| existImplicitConversion ctx rhsType lhsType then
+                    Error <| invalidBinaryOperation rg op lhsType rhsType
+                else
+                    Ok <| Ast_BinaryExpr(lhsType, op, e1, e2)
+
+            // simple arithmetic operations
+            | Op_Plus | Op_Minus
+            | Op_Asterisk | Op_Slash ->
+                match lhsType, rhsType with
+                | TypeIdent.OfIntType, TypeIdent.OfIntType ->
+                    Ok <| Ast_BinaryExpr(TypeIdent.kIntType, op, e1, e2)
+                | TypeIdent.OfFloatType, TypeIdent.OfFloatType ->
+                    Ok <| Ast_BinaryExpr(TypeIdent.kFloatType, op, e1, e2)
+                | _ ->
+                    Error <| invalidBinaryOperation rg op lhsType rhsType
+
+            // int-only operations
+            | Op_Modulus
+            | Op_BitwiseAnd | Op_BitwiseOr
+            | Op_BitwiseXor ->
+                match lhsType, rhsType with
+                | TypeIdent.OfIntType, TypeIdent.OfIntType ->
+                    Ok <| Ast_BinaryExpr(TypeIdent.kIntType, op, e1, e2)
+                | _ ->
+                    Error <| invalidBinaryOperation rg op lhsType rhsType
+
+            | Op_Equal | Op_NotEqual
+            | Op_Greater | Op_GreaterEq
+            | Op_Less | Op_LessEq ->
+                match lhsType, rhsType with
+                | SystemTypeIdent(x), SystemTypeIdent(y) when x=y && x<>BuiltinType.Unit ->
+                    Ok <| Ast_BinaryExpr(TypeIdent.kBoolType, op, e1, e2)
+                | _ ->
+                    Error <| invalidBinaryOperation rg op lhsType rhsType
+
+            | Op_Conjunction | Op_Disjunction ->
+                match lhsType, rhsType with
+                | SystemTypeIdent(BuiltinType.Bool), SystemTypeIdent(BuiltinType.Bool) ->
+                    Ok <| Ast_BinaryExpr(TypeIdent.kBoolType, op, e1, e2)
+                | _ ->
+                    Error <| invalidBinaryOperation rg op lhsType rhsType
+
+        let processUserBinaryExpr e1 e2 =
+            failwith "operator overloading not supported yet"
+
         translatePair (translateExpr, translateExpr) ctx lhs rhs
         |> processEvalResult2
                (fun e1 e2 ->
-                    let lhsType = AstExpr.getType e1
-                    let rhsType = AstExpr.getType e2
+                    match e1.Type, e2.Type with
+                    | TypeIdent.OfBuiltinType(_), TypeIdent.OfBuiltinType(_) ->
+                        processBuiltinBinaryExpr e1 e2
+                    | _ ->
+                        processUserBinaryExpr e1 e2)
 
-                    match op with
-                    | Op_Assign ->
-                        if not <| isAssignable ctx e1 then
-                            Error <| invalidAssignment lhs.Range
-                        else if not <| existImplicitConversion ctx rhsType lhsType then
-                            Error <| invalidBinaryOperation rg op lhsType rhsType
-                        else
-                            // TODO: make assignment an independent case?
-                            Ok <| Ast_BinaryExpr(lhsType, op, e1, e2)
 
-                    | Op_Plus | Op_Minus
-                    | Op_Asterisk | Op_Slash
-                    | Op_Modulus
-                    | Op_BitwiseAnd | Op_BitwiseOr
-                    | Op_BitwiseXor ->
-                        match lhsType, rhsType with
-                        | SystemTypeIdent(BuiltinType.Int), SystemTypeIdent(BuiltinType.Int) ->
-                            Ok <| Ast_BinaryExpr(kIntType, op, e1, e2)
-                        | SystemTypeIdent(_), SystemTypeIdent(_) ->
-                            Error <| invalidBinaryOperation rg op lhsType rhsType
-                        | _ ->
-                            failwith "user type not supported yet"
 
-                    | Op_Equal | Op_NotEqual
-                    | Op_Greater | Op_GreaterEq
-                    | Op_Less | Op_LessEq ->
-                        match lhsType, rhsType with
-                        | SystemTypeIdent(x), SystemTypeIdent(y) when x=y && x<>BuiltinType.Unit ->
-                            Ok <| Ast_BinaryExpr(kBoolType, op, e1, e2)
-                        | SystemTypeIdent(_), SystemTypeIdent(_) ->
-                            Error <| invalidBinaryOperation rg op lhsType rhsType
-                        | _ ->
-                            failwith "user type not supported yet"
 
-                    | Op_Conjunction | Op_Disjunction ->
-                        match lhsType, rhsType with
-                        | SystemTypeIdent(BuiltinType.Bool), SystemTypeIdent(BuiltinType.Bool) ->
-                            Ok <| Ast_BinaryExpr(kBoolType, op, e1, e2)
-
-                        | SystemTypeIdent(_), SystemTypeIdent(_) ->
-                            Error <| invalidBinaryOperation rg op lhsType rhsType
-
-                        | _ ->
-                            failwith "user type not supported yet")
 
     //
     //
@@ -297,6 +333,7 @@ let rec translateExpr ctx expr =
     | Syn_TypeCheckExpr(rg, child, testType)    -> translateTypeCheckExpr rg child testType
     | Syn_TypeCastExpr(rg, child, targetType)   -> translateTypeCastExpr rg child targetType
     | Syn_InvocationExpr(rg, callee, args)      -> translateInvocationExpr rg callee args
+    | Syn_NewObjectExpr(rg, type', args)        -> translateNewObjectExpr rg type' args
     | Syn_BinaryExpr(rg, op, lhs, rhs)          -> translateBinaryExpr rg op lhs rhs
 
 let rec translateStmt ctx stmt =
@@ -352,7 +389,7 @@ let rec translateStmt ctx stmt =
                             |> makeEvalResult (Ast_VarDeclStmt(id, initType, value)))
 
     let translateChoiceStmt rg pred pBranch nBranch =
-        ensureExprType pred kBoolType ctx
+        ensureExprType pred TypeIdent.kBoolType ctx
         |> bindEvalResult
                (fun newCtx predExpr ->
                     let pBody = pBranch
@@ -365,7 +402,7 @@ let rec translateStmt ctx stmt =
                         |> processEvalResult (fun sp -> Ok <| Ast_ChoiceStmt(predExpr, sp, None)))
 
     let translateWhileStmt rg pred body =
-        ensureExprType pred kBoolType ctx
+        ensureExprType pred TypeIdent.kBoolType ctx
         |> updateContext enterLoopBody
         |> bindEvalResult
                (fun newCtx predExpr ->
@@ -381,14 +418,14 @@ let rec translateStmt ctx stmt =
     let translateReturnStmt rg maybeExpr =
         match maybeExpr with
         | Some retValue ->
-            ensureExprType retValue (getReturnType ctx) ctx
+            ensureExprType retValue (getCurrentReturnType ctx) ctx
             |> processEvalResult (fun e -> Ok <| Ast_ReturnStmt (Some e))
         | None ->
-            let destType = getReturnType ctx
-            if destType=kUnitType then
+            let destType = getCurrentReturnType ctx
+            if destType.IsUnitType then
                 ctx |> makeEvalResult (Ast_ReturnStmt None)
             else
-                ctx |> makeEvalError (invalidImpilicitConversion rg kUnitType destType)
+                ctx |> makeEvalError (invalidImpilicitConversion rg TypeIdent.kUnitType destType)
 
     let translateCompoundStmt rg children =
         List.mapFold translateStmt ctx children
@@ -418,7 +455,7 @@ let translateMethod env body =
 let translateModule session =
     let errorBuffer = ResizeArray()
 
-    let klass = Seq.toList <| seq {
+    let klassList = Seq.toList <| seq {
         for PendingKlass(klassDef, methodList) in session.PendingKlassList do
             let methods = Seq.toList <| seq {
                 for PendingMethod(methodDef, body) in methodList do
@@ -436,6 +473,6 @@ let translateModule session =
         }
     
     if errorBuffer.Count = 0 then
-        Ok <| klass
+        Ok <| AstModule(session.CurrentModule.ModuleName, klassList)
     else
         Error <| TranslationError errorBuffer

@@ -1,22 +1,23 @@
 ﻿module Aqua.Bytecode
 
 open Aqua.Language
+open Aqua.Ast
 
 type Bytecode =
     | Nop
 
-    //
+    // dynamic stack operation
     //
     | LoadArg of int
     | LoadLocal of int
-    | LoadField of string
+    | LoadField of FieldReference
     | LoadElement
     | StoreArg of int
     | StoreLocal of int
-    | StoreField of string
+    | StoreField of FieldReference
     | StoreElement
 
-    // stack operation
+    // static stack operation
     //
     | PushI32 of int32
     | PushI64 of int64
@@ -79,12 +80,12 @@ type Bytecode =
 
     // object model
     //
-    | NewObj of TypeIdent
-    | NewArr of TypeIdent
+    | NewObj of MethodReference
+    //| NewArr of TypeIdent
     | Box
     | Unbox
 
-    | Call of string
+    | Call of MethodReference
     //| CallVirtual
 
 type CodeGenBuffer = ResizeArray<Bytecode>

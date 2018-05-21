@@ -8,15 +8,55 @@ open Aqua.TypeChecker
 open Aqua.Ast
 open Aqua.CodeGenerator
 open Aqua.Bytecode
+open System.Linq.Expressions
 
 // first pass: parse the source file
 // second pass: enumerate and memorize declarations
 // third pass: do type checking
 
+let modifierToString ms =
+    [ (if ModifierGroup.isStatic ms then "static" else "instance")
+      (if ModifierGroup.isPublic ms then "public" else "private") ]
+    |> List.filter (not << String.IsNullOrEmpty)
+    |> fun xs -> String.Join(", ", xs)
+
+let fieldRefToString (field: FieldReference) =
+    sprintf "%s::%s.%s" 
+            (field.Module.ToString()) 
+            (field.Klass.Name) 
+            (field.Definition.Name)
+
+let methodRefToString (method: MethodReference) =
+    let paramListStr =
+        method.Definition.Parameters
+        |> List.map (snd >> TypeIdent.getTypeName)
+        |> fun xs -> String.Join(", ", xs)
+
+    sprintf "%s::%s.%s(%s)" 
+            (method.Module.ToString()) 
+            (method.Klass.Name) 
+            (method.Definition.Name)
+            (paramListStr)
+
+let bytecodeToString code =
+    match code with
+    | LoadField(field) ->
+        sprintf "LoadField \"%s\"" (fieldRefToString field)
+    | StoreField(field) ->
+        sprintf "StoreField \"%s\"" (fieldRefToString field)
+    | CastObj(t) ->
+        sprintf "CastObj \"%s\"" (t.ToString())
+    | NewObj(ctor) ->
+        sprintf "NewObj \"%s\"" (methodRefToString ctor)
+    | Call(method) ->
+        sprintf "Call \"%s\"" (methodRefToString method)
+    | _ -> 
+        sprintf "%A" code
+
 [<EntryPoint>]
 let main argv =
     let sampleCode = """
-        module mycode
+        module Example
 
         // NAME LOOKUP: METHOD
         // [IMPLICIT LOOKUP]
@@ -27,9 +67,9 @@ let main argv =
         // <expr>.<method>(...) looks for instance method
         // <type>.<method>(...) looks for static method
 
-        //import std
-        class Program {
-            public static fun foo(x: int) -> bool {
+        //import System
+        static class Program {
+            public static fun Foo(x: int) -> bool {
                 val y = 2;
                 var z = 42;
 
@@ -44,7 +84,7 @@ let main argv =
             }
 
             // line comment
-            public static fun sum(x: int, y: int) -> int {
+            public static fun Sum(x: int, y: int) -> int {
                 return x + /* block comment */ y;
             }
 
@@ -60,10 +100,14 @@ let main argv =
                     result = result + x;
 
                     if (x==41)
-                        continue;
+                        break;
                 }
                 
                 return result;
+            }
+
+            public static fun Main() -> unit {
+                var p1 = new Point(1, 2);
             }
         }
 
@@ -72,6 +116,11 @@ let main argv =
         }
 
         class Point {
+            public constructor(x: int, y: int) {
+                this.x = x;
+                this.y = y;
+            }
+
             public fun DistToOrigin() -> int {
                 val x = GetX();
                 val y = this.GetY();
@@ -111,16 +160,55 @@ let main argv =
     |> Result.bind (processModule loader)
     |> Result.bind translateModule
     |> function
-       | Ok astKlassList ->
-            Seq.toList <| seq {
-                for AstKlass(klass, methodList) in astKlassList do
-                    for AstMethod(method, varList, body) in methodList do
-                        let codeAcc = CodeGen.createEmpty ()
+       | Ok(AstModule(moduleName, klassList)) ->
+            printfn ".module %s" (moduleName.ToString())
+            printfn ""
+
+            for AstKlass(klassDef, methodList) in klassList do
+                printfn ".class[%s] %s {" (modifierToString klassDef.Modifiers) (klassDef.Name)
+
+                for fieldDef in klassDef.Fields do
+                    printfn "  .field[%s] %s: %s" 
+                            (modifierToString fieldDef.Modifiers)
+                            (fieldDef.Name)
+                            (TypeIdent.getTypeName fieldDef.Type)
+
+                printfn ""
                 
-                        compileStmt { LoopStart = 0 } codeAcc body |> ignore
-                        yield method.Name, codeAcc.ToArray()
-            }
-            |> List.iter (printfn "%A")
+                for AstMethod(methodDef, varList, body) in methodList do
+                    let paramListStr =
+                        methodDef.Parameters
+                        |> List.map (fun (n, t) -> sprintf "%s: %s" n (TypeIdent.getTypeName t))
+                        |> fun xs -> String.Join(", ", xs)
+
+                    printfn "  .method[%s] %s(%s) -> %s {"
+                            (modifierToString methodDef.Modifiers)
+                            (methodDef.Name)
+                            (paramListStr)
+                            (TypeIdent.getTypeName methodDef.ReturnType)
+
+                    printfn "    .local {"
+                    varList
+                    |> Seq.iteri (fun i (AstVariableDecl(n, t, _)) -> 
+                                      printfn "      [%d] %s: %s" i n (TypeIdent.getTypeName t))
+
+                    printfn "    }"
+
+                    // generate bytecode
+                    let codeBuf = CodeGen.createEmpty ()
+                    compileStmt codeBuf (CodeGenContext.createContext -1) body |> ignore
+
+                    printfn "    .body {"
+                    codeBuf
+                    |> Seq.map bytecodeToString
+                    |> Seq.iteri (printfn "      [%d] %s")
+
+                    printfn "    }"
+                    
+                    printfn "  }\n"
+
+                printfn "}\n"
+
        | Error (ParsingError e) ->
             printfn "%s" e
        | Error (TranslationError e) ->
