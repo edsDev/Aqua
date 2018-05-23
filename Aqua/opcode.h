@@ -3,98 +3,97 @@
 
 namespace eds::aqua
 {
-	struct Instruction
+	enum class OpCode : uint8_t
 	{
-		enum Code : uint8_t
-		{
-			nop,
+		Nop,
 
-			// Load Family
-			//
-			ldc_i32,
-			ldarg_n,
-			ldloc_n,
-			// ldfld,
+		// dynamic stack operation
+		//
+		LoadArg,
+		LoadLocal,
+		LoadField,
+		//LoadElement,
 
-			// Store Family
-			//
-			stloc_n,
-			// stfld,
+		StoreArg,
+		StoreLocal,
+		StoreField,
+		//StoreElement,
 
-			// Type Cast Family
-			//
+		// static stack operation
+		//
+		PushI32,
+		//PushI64,
+		//PushU32,
+		//PushU64,
+		PushF32,
+		//PushF64,
+		//PushStr,
+		Pop,
+		Dup,
 
-			// Arithmetic Operation Family
-			//
-			add,
-			sub,
-			mul,
-			div,
-			mod,
-			neg,
+		// arithmetic
+		//
+		Add,
+		Sub,
+		Mul,
+		Div,
+		Rem,
+		Neg,
 
-			// Bitwise Operation Family
-			//
-			and,
-			or,
-			xor,
-			rev,
-			// shl,
-			// shr,
-			// shr_u,
+		// bit operation
+		//
+		Shl,
+		Shr,
+		And,
+		Or,
+		Xor,
+		Rev,
 
-			// Logical Operation Family
-			//
-			lg_not,
-			lg_and,
-			lg_or,
-			cmp_eq,
-			cmp_neq,
-			cmp_lt,
-			cmp_lteq,
-			cmp_gt,
-			cmp_gteq,
+		// comparison
+		//
+		Eq,
+		NEq,
+		Gt,
+		GtEq,
+		Ls,
+		LsEq,
 
-			// Control Flow Family
-			//
-			jmp,
-			jmpif,
-			call,
-			ret,
+		// control flow
+		//
+		Jump,
+		JumpOnTrue,
+		JumpOnFalse,
+		Ret,
 
-			// Dynamic Allocation Family
-			//
-			// newobj,
-			// newarr,
-		};
+		// type cast
+		CastBool,
+		CastI8,
+		CastI16,
+		CastI32,
+		CastI64,
+		CastU8,
+		CastU16,
+		CastU32,
+		CastU64,
+		CastF32,
+		CastF64,
+		CastObj,
+
+		// object model
+		NewObj,
+		//NewArr,
+		Box,
+		Unbox,
+		Call
 	};
+	
+	using CodeUnit = uint8_t;
+	using CodeUnitPtr = const CodeUnit*;
 
-	struct OpCode;
-	struct OpCode_1;
-	struct OpCode_2;
-	struct OpCode_4;
-
-#pragma pack(push, 1)
-	struct OpCode
-	{
-		Instruction::Code code;
-	};
-
-	struct OpCode_1
-	{
-		Instruction::Code code;
-		uint8_t operand;
-	};
-	struct OpCode_2
-	{
-		Instruction::Code code;
-		uint16_t operand;
-	};
-	struct OpCode_4
-	{
-		Instruction::Code code;
-		uint32_t operand;
-	};
-#pragma pack(pop)
-
+	OpCode FetchOpCode(CodeUnitPtr& instRef);
+	int8_t FetchArgI8(CodeUnitPtr& instRef);
+	int16_t FetchArgI16(CodeUnitPtr& instRef);
+	int32_t FetchArgI32(CodeUnitPtr& instRef);
+	int64_t FetchArgI64(CodeUnitPtr& instRef);
+	float_t FetchArgF32(CodeUnitPtr& instRef);
 }

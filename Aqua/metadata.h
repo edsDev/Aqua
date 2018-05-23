@@ -1,68 +1,110 @@
 #pragma once
 #include "basic.h"
 #include "opcode.h"
+#include <variant>
 
 namespace eds::aqua
 {
-	class TypeInfo;
-	class FieldInfo;
+	enum class PrimaryType
+	{
+		Unit,
+		Boolean,
+		Int32,
+		Float32,
+	};
 
-	class ParameterInfo;
-	class VariableInfo;
-	class FunctionInfo;
+	struct KlassInfo;
+	struct FieldInfo;
+	struct MethodInfo;
+
+	struct ParameterInfo;
+	struct VariableInfo;
+
+	class TypeStub
+	{
+	public:
+		TypeStub() 
+			: TypeStub(PrimaryType::Unit) { }
+
+		TypeStub(PrimaryType kind) 
+			: type_data_(kind) { }
+		
+		TypeStub(const KlassInfo* klass)
+			: type_data_(klass) { }
+
+	public:
+		bool IsPrimaryType() const
+		{
+
+		}
+
+		bool IsKlassType() const
+		{
+
+		}
+
+	private:
+		std::variant<PrimaryType, const KlassInfo*> type_data_;
+	};
+
+	struct TypedName
+	{
+		TypeStub Type;
+
+		string Name;
+	};
+
+	struct ModifierGroup
+	{
+		bool IsStatic = false;
+		bool IsPublic = false;
+	};
+
+	struct KlassInfo
+	{
+		// index of the class in Klass Definition Table
+		int32_t Id;
+
+		// name of the class
+		string Name;
+
+		// total size of object body
+		int32_t Size;
+
+		// methods of the class, view into Method Definition Table
+		ArrayView<MethodInfo> Methods;
+		// fields of the class, view into Field Definition Table
+		ArrayView<FieldInfo> Fields;
+	};
 
 	struct FieldInfo
 	{
+		// index of the field in Field Definition Table
+		int32_t Id;
+
 		// name
-		string_view name;
-		// data type
-		const TypeInfo* type;
-		// object layout offset 
-		int offset;
+		string Name;
+
+		// runtime type of the field
+		TypeStub Type;
+
+		// object layout offset in byte
+		int LayoutOffset;
 	};
 
-	struct TypeInfo
+	struct MethodInfo
 	{
-		// unique type id in an assembly
-		uint32_t id;
+		// index of the method in Method Definition Table
+		uint32_t Id;
 
-		string_view  name;
-
-		uint32_t flags;
-		// size of object body
-		int32_t size;
-		// view to field information
-		ArrayView<FieldInfo> fields;
-
-	public:
-		bool IsPrimaryType() const;
-		bool IsKlassType() const;
-	};
-
-	struct ParameterInfo
-	{
-		string_view name;
-
-		const TypeInfo* type;
-	};
-
-	struct VariableInfo
-	{
-		string_view name;
-
-		const TypeInfo* type;
-	};
-
-	struct FunctionInfo
-	{
-		// unique function id in an assembly
-		uint32_t id;
 		//
-		string_view name;
+		string Name;
 
-		const TypeInfo* return_type;
-		ArrayView<ParameterInfo> parameters;
-		ArrayView<VariableInfo*> locals;
-		ArrayView<OpCode> instructions;
+		TypeStub ReturnType;
+		HeapArray<TypedName> Parameters;
+		HeapArray<TypedName> Locals;
+
+		// unsafe byte sequence
+		HeapArray<CodeUnit> Instructions;
 	};
 }

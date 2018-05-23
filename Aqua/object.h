@@ -7,7 +7,7 @@ namespace eds::aqua
 	class Object
 	{
 	public:
-		const TypeInfo* type;
+		const KlassInfo* type;
 		uint32_t flags;
 
 	public:

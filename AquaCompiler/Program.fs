@@ -107,7 +107,7 @@ let main argv =
             }
 
             public static fun Main() -> unit {
-                var p1 = new Point(1, 2);
+                var p1 = new Point(Sum(1, 2), SumTo(10));
             }
         }
 

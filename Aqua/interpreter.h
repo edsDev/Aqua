@@ -1,6 +1,6 @@
 #pragma once
 #include "basic.h"
-#include "assembly.h"
+#include "module.h"
 #include "metadata.h"
 #include "object.h"
 #include "gc.h"
@@ -11,22 +11,44 @@ namespace eds::aqua::interpret
 {
 	struct EvalItem
 	{
-		const TypeInfo* type;
+		TypeStub TypeToken;
 
 		union
 		{
-			uint8_t dummy[8];
+			const uint8_t Dummy[8];
 
-			Object* value_ptr;
+			Object* Value_ObjectPtr;
 
-			int32_t value_i32;
-			// int64_t value_i64;
-			// uint32_t value_u32;
-			// uint64_t value_u64;
+			int32_t Value_I32;
+			int64_t Value_I64;
+			uint32_t Value_U32;
+			uint64_t Value_U64;
 			
-			// float value_f32;
-			// double value_d32;
+			float_t Value_F32;
+			double_t Value_F64;
 		};
+
+	public:
+		explicit EvalItem(const KlassInfo* type)
+		{
+			TypeToken = type;
+			Value_ObjectPtr = nullptr;
+		}
+		EvalItem(Object* ptr)
+		{
+			TypeToken = ptr->type;
+			Value_ObjectPtr = ptr;
+		}
+		EvalItem(int32_t value)
+		{
+			TypeToken = PrimaryType::Int32;
+			Value_I32 = value;
+		}
+		EvalItem(float_t value)
+		{
+			TypeToken = PrimaryType::Float32;
+			Value_F32 = value;
+		}
 	};
 
 	class EvalStack
@@ -36,9 +58,27 @@ namespace eds::aqua::interpret
 		{
 			stack_.push_back(item);
 		}
-		void PushNull(TypeInfo* type);
-		void PushObject(Object* value);
-		void PushInt32(int32_t value);
+		void PushNull(const KlassInfo* type)
+		{
+			PushItem(EvalItem{ type });
+		}
+		void PushObject(Object* value)
+		{
+			PushItem(value);
+		}
+		void PushInt32(int32_t value)
+		{
+			PushItem(value);
+		}
+		void PushFloat32(float_t value)
+		{
+			PushItem(value);
+		}
+
+		void DuplicateTop()
+		{
+			stack_.push_back(stack_.back());
+		}
 
 		EvalItem PopItem()
 		{
@@ -59,70 +99,55 @@ namespace eds::aqua::interpret
 
 	struct EvalContext
 	{
-		bool returned;
-		EvalStack stack;
+		bool Returned;
+		EvalStack EvalStack;
 
-		const OpCode* current_op;
-		ArrayView<OpCode> instructions;
+		// pointer to next instruction
+		CodeUnitPtr InstPtr;
+		ArrayView<CodeUnit> Instructions;
 
-		ArrayView<EvalItem> args;
-		ArrayRef<EvalItem> locals;
+		ArrayRef<EvalItem> Args;
+		ArrayRef<EvalItem> Locals;
 	};
-
-	using InstructionDelegate = void (*)(EvalContext& ctx);
-	using InstructionDelegateArray = std::array<InstructionDelegate, 256>;
 
 	class Interpreter
 	{
 	public:
-		Interpreter(std::unique_ptr<Assembly> assembly);
+		Interpreter(unique_ptr<Module> startup);
 
 		void Bootstrap()
 		{
 			// invoke main function
 		}
 
-		void Invoke(FunctionInfo* func)
-		{
-			static InstructionDelegateArray delegates;
-
-			auto ctx = CreateEvalContext(func);
-			while (!ctx.returned)
-			{
-				assert(std::distance(ctx.current_op, ctx.instructions.EndPtr()) > 0);
-				assert(delegates[ctx.current_op->code]);
-
-				// execute and advance opcode at p
-				delegates[ctx.current_op->code](ctx);
-			}
-		}
+		void Invoke(const MethodInfo* method);
 
 	private:
-		EvalContext CreateEvalContext(FunctionInfo* func)
+		EvalContext CreateEvalContext(const MethodInfo* method)
 		{
 			EvalContext result;
 			
-			result.instructions = func->instructions;
-			result.args = LoadArguments(func);
-			result.locals = LoadLocals(func);
+			result.Instructions = method->Instructions.View();
+			result.Args = LoadArguments(method);
+			result.Locals = LoadLocals(method);
 
-			result.returned = false;
-			result.current_op = result.instructions.BeginPtr();
+			result.Returned = false;
+			result.InstPtr = result.Instructions.BeginPtr();
 
 			return result;
 		}
 
-		ArrayView<EvalItem> LoadArguments(FunctionInfo* func)
+		ArrayRef<EvalItem> LoadArguments(const MethodInfo* method)
 		{
 			throw 0;
 		}
 
-		ArrayRef<EvalItem> LoadLocals(FunctionInfo* func)
+		ArrayRef<EvalItem> LoadLocals(const MethodInfo* method)
 		{
 			throw 0;
 		}
 
-		Object* AllocateObject(TypeInfo* type)
+		Object* AllocateObject(const KlassInfo* type)
 		{
 			auto ptr = heap_.AllocateObject(type);
 			
@@ -143,16 +168,15 @@ namespace eds::aqua::interpret
 		void CollectGarbage()
 		{
 			// mark root objects
-			//
-
 			for (const auto& item : call_stack_)
 			{
-				if (item.type->IsKlassType())
-					heap_.MarkObject(item.value_ptr);
+				if (item.TypeToken.IsKlassType() && item.Value_ObjectPtr)
+				{
+					heap_.MarkObject(item.Value_ObjectPtr);
+				}
 			}
 
 			// finalize collection
-			//
 			heap_.CollectGarbage();
 		}
 
@@ -160,7 +184,7 @@ namespace eds::aqua::interpret
 
 		gc::ManagedHeap heap_;
 
-		std::vector<EvalItem> call_stack_;
-		std::vector<EvalStack*> evals_;
+		vector<EvalItem> call_stack_;
+		vector<EvalStack*> evals_;
 	};
 }

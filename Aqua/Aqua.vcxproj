@@ -115,27 +115,19 @@
   <ItemGroup>
     <ClCompile Include="gc.cpp" />
     <ClCompile Include="interpreter.cpp" />
-    <ClCompile Include="interpreter_instructions.cpp" />
-    <ClCompile Include="parser.cpp" />
+    <ClCompile Include="module.cpp" />
+    <ClCompile Include="opcode.cpp" />
     <ClCompile Include="Source.cpp" />
-    <ClCompile Include="tokenizer.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="assembly.h" />
-    <ClInclude Include="ast-info.h" />
+    <ClInclude Include="module.h" />
     <ClInclude Include="basic.h" />
-    <ClInclude Include="compiler.h" />
     <ClInclude Include="gc.h" />
-    <ClInclude Include="keywords.h" />
-    <ClInclude Include="opcode-emit.h" />
     <ClInclude Include="opcode.h" />
     <ClInclude Include="interpreter.h" />
     <ClInclude Include="object.h" />
-    <ClInclude Include="parser.h" />
     <ClInclude Include="ptr-arithmetic.h" />
     <ClInclude Include="metadata.h" />
-    <ClInclude Include="syntax-manip.h" />
-    <ClInclude Include="tokenizer.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\edslib\edslib\edslib.vcxproj">

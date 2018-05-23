@@ -11,11 +11,11 @@ type Bytecode =
     | LoadArg of int
     | LoadLocal of int
     | LoadField of FieldReference
-    | LoadElement
+    //| LoadElement
     | StoreArg of int
     | StoreLocal of int
     | StoreField of FieldReference
-    | StoreElement
+    //| StoreElement
 
     // static stack operation
     //

@@ -109,7 +109,7 @@ namespace eds::aqua::gc
 		}
 	}
 
-	Object* ManagedHeap::AllocateObject(const TypeInfo* type)
+	Object* ManagedHeap::AllocateObject(const KlassInfo* type)
 	{
 		assert(type->IsKlassType());
 
