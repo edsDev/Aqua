@@ -6,6 +6,7 @@
 #include "gc.h"
 #include <array>
 #include <vector>
+#include <list>
 
 namespace eds::aqua::interpret
 {
@@ -51,100 +52,83 @@ namespace eds::aqua::interpret
 		}
 	};
 
-	class EvalStack
+	class EvalItem2
 	{
 	public:
-		void PushItem(EvalItem item)
-		{
-			stack_.push_back(item);
-		}
-		void PushNull(const KlassInfo* type)
-		{
-			PushItem(EvalItem{ type });
-		}
-		void PushObject(Object* value)
-		{
-			PushItem(value);
-		}
-		void PushInt32(int32_t value)
-		{
-			PushItem(value);
-		}
-		void PushFloat32(float_t value)
-		{
-			PushItem(value);
-		}
-
-		void DuplicateTop()
-		{
-			stack_.push_back(stack_.back());
-		}
-
-		EvalItem PopItem()
-		{
-			auto result = stack_.back();
-			stack_.pop_back();
-
-			return result;
-		}
-
-		const auto& Data() const
-		{
-			return stack_;
-		}
-
-	private:
-		std::vector<EvalItem> stack_;
+		template<typename T>
+		T GetValue();
 	};
 
-	struct EvalContext
+	class EvalContext
 	{
-		bool Returned;
-		EvalStack EvalStack;
+	public:
+		EvalContext(Interpreter& intepreter, const MethodInfo* method);
 
+		// opcode operation
+		//
+		template<typename T>
+		T FetchInstOrData();
+
+		//
+		//
+		EvalItem& ArgumentAt(int index);
+		EvalItem& LocalAt(int index);
+
+		// eval stack operation
+		//
+		void PushEvalStack(EvalItem item);
+		EvalItem PopEvalStack();
+
+		void DuplicateTopEvalStack();
+
+		// control flow
+		//
+		void JumpTo(int index);
+
+		void Return();
+		void Return(EvalItem value);
+
+
+	private:
+		Interpreter& interpreter_;
+
+		vector<EvalItem> evals_;
+
+		const MethodInfo* method_;
 		// pointer to next instruction
-		CodeUnitPtr InstPtr;
-		ArrayView<CodeUnit> Instructions;
+		CodeUnitPtr inst_;
 
-		ArrayRef<EvalItem> Args;
-		ArrayRef<EvalItem> Locals;
+		HeapArray<EvalItem> args_;
+		HeapArray<EvalItem> locals_;
+	};
+
+	class InterpreterEnvironment
+	{
+
 	};
 
 	class Interpreter
 	{
 	public:
-		Interpreter(unique_ptr<Module> startup);
+		Interpreter(unique_ptr<InterpreterEnvironment> env);
 
 		void Bootstrap()
 		{
 			// invoke main function
-		}
 
-		void Invoke(const MethodInfo* method);
+			// instruction loop
+			while (!context_.empty())
+			{
+				Tick();
+			}
+		}
 
 	private:
-		EvalContext CreateEvalContext(const MethodInfo* method)
+		void Tick();
+
+		EvalContext& CurrentContext()
 		{
-			EvalContext result;
-			
-			result.Instructions = method->Instructions.View();
-			result.Args = LoadArguments(method);
-			result.Locals = LoadLocals(method);
-
-			result.Returned = false;
-			result.InstPtr = result.Instructions.BeginPtr();
-
-			return result;
-		}
-
-		ArrayRef<EvalItem> LoadArguments(const MethodInfo* method)
-		{
-			throw 0;
-		}
-
-		ArrayRef<EvalItem> LoadLocals(const MethodInfo* method)
-		{
-			throw 0;
+			return context_.back();
 		}
 
 		Object* AllocateObject(const KlassInfo* type)
@@ -185,6 +169,6 @@ namespace eds::aqua::interpret
 		gc::ManagedHeap heap_;
 
 		vector<EvalItem> call_stack_;
-		vector<EvalStack*> evals_;
+		std::list<EvalContext> context_;
 	};
 }

@@ -17,8 +17,8 @@ namespace eds::aqua::interpret
 	template<template<typename> typename F, bool IntegralOnly>
 	void GenericBinaryInstructionImpl(EvalContext& ctx)
 	{
-		auto lhs = ctx.EvalStack.PopItem();
-		auto rhs = ctx.EvalStack.PopItem();
+		auto lhs = ctx.PopEvalStack();
+		auto rhs = ctx.PopEvalStack();
 
 		if (lhs.TypeToken != rhs.TypeToken)
 		{
@@ -33,7 +33,7 @@ namespace eds::aqua::interpret
 		//
 		if (lhs.TypeToken == PrimaryType::Int32)
 		{
-			ctx.EvalStack.PushInt32(F<int32_t>{}(lhs.Value_I32, rhs.Value_I32));
+			ctx.PushEvalStack(F<int32_t>{}(lhs.Value_I32, rhs.Value_I32));
 			return;
 		}
 
@@ -43,7 +43,7 @@ namespace eds::aqua::interpret
 		{
 			if (lhs.TypeToken == PrimaryType::Float32)
 			{
-				ctx.EvalStack.PushFloat32(F<float_t>{}(lhs.Value_F32, rhs.Value_F32));
+				ctx.PushEvalStack(F<float_t>{}(lhs.Value_F32, rhs.Value_F32));
 			}
 		}
 
@@ -90,15 +90,15 @@ namespace eds::aqua::interpret
 
 	void Instruction_LoadArg(EvalContext& ctx)
 	{
-		auto index = FetchArgI32(ctx.InstPtr);
+		auto index = ctx.FetchInstOrData<int32_t>();
 
-		ctx.EvalStack.PushItem(ctx.Args.At(index));
+		ctx.PushEvalStack(ctx.ArgumentAt(index));
 	}
 	void Instruction_LoadLocal(EvalContext& ctx)
 	{
-		auto index = FetchArgI32(ctx.InstPtr);
+		auto index = ctx.FetchInstOrData<int32_t>();
 
-		ctx.EvalStack.PushItem(ctx.Locals.At(index));
+		ctx.PushEvalStack(ctx.LocalAt(index));
 	}
 	void Instruction_LoadField(EvalContext& ctx)
 	{
@@ -106,18 +106,18 @@ namespace eds::aqua::interpret
 	}
 	void Instruction_StoreArg(EvalContext& ctx)
 	{
-		auto index = FetchArgI32(ctx.InstPtr);
-		auto item = ctx.EvalStack.PopItem();
-		auto& slot = ctx.Args.At(index);
+		auto index = ctx.FetchInstOrData<int32_t>();
+		auto item = ctx.PopEvalStack();
+		auto& slot = ctx.ArgumentAt(index);
 
 		assert(slot.type == item.type);
 		slot = item;
 	}
 	void Instruction_StoreLocal(EvalContext& ctx)
 	{
-		auto index = FetchArgI32(ctx.InstPtr);
-		auto item = ctx.EvalStack.PopItem();
-		auto& slot = ctx.Locals.At(index);
+		auto index = ctx.FetchInstOrData<int32_t>();
+		auto item = ctx.PopEvalStack();
+		auto& slot = ctx.LocalAt(index);
 
 		assert(slot.type == item.type);
 		slot = item;
@@ -130,20 +130,20 @@ namespace eds::aqua::interpret
 
 	void Instruction_PushI32(EvalContext& ctx)
 	{
-		ctx.EvalStack.PushInt32(FetchArgI32(ctx.InstPtr));
+		ctx.PushEvalStack(ctx.FetchInstOrData<int32_t>());
 	}
 	void Instruction_PushF32(EvalContext& ctx)
 	{
-		ctx.EvalStack.PushFloat32(FetchArgF32(ctx.InstPtr));
+		ctx.PushEvalStack(ctx.FetchInstOrData<float_t>());
 	}
 
 	void Instruction_Pop(EvalContext& ctx)
 	{
-		ctx.EvalStack.PopItem();
+		ctx.PopEvalStack();
 	}
 	void Instruction_Dup(EvalContext& ctx)
 	{
-		ctx.EvalStack.DuplicateTop();
+		ctx.DuplicateTopEvalStack();
 	}
 
 	// arithmetic
@@ -233,9 +233,9 @@ namespace eds::aqua::interpret
 	//
 	void Instruction_Jump(EvalContext& ctx)
 	{
-		auto offset = FetchArgI32(ctx.InstPtr);
+		auto offset = ctx.FetchInstOrData<int32_t>();
 
-		ctx.InstPtr = AdvanceOpCode(ctx.Instructions.BeginPtr(), offset);
+		ctx.JumpTo(offset);
 	}
 	void Instruction_JumpOnTrue(EvalContext& ctx)
 	{
@@ -318,101 +318,100 @@ namespace eds::aqua::interpret
 
 #pragma endregion
 
-	void Interpreter::Invoke(const MethodInfo* method)
+	void Interpreter::Tick()
 	{
-		auto ctx = CreateEvalContext(method);
-		while (!ctx.Returned)
+		auto& ctx = CurrentContext();
+
+		switch (ctx.FetchInstOrData<OpCode>())
 		{
 #define INST_CASE(NAME) \
 	case OpCode::NAME: Instruction_##NAME(ctx); break
 
-			switch (FetchOpCode(ctx.InstPtr))
-			{
-				// nop
-				//
-				INST_CASE(Nop);
+			// nop
+			//
+			INST_CASE(Nop);
 
-				// dynamic stack operation
-				//
-				INST_CASE(LoadArg);
-				INST_CASE(LoadLocal);
-				INST_CASE(LoadField);
+			// dynamic stack operation
+			//
+			INST_CASE(LoadArg);
+			INST_CASE(LoadLocal);
+			INST_CASE(LoadField);
 
-				INST_CASE(StoreArg);
-				INST_CASE(StoreLocal);
-				INST_CASE(StoreField);
+			INST_CASE(StoreArg);
+			INST_CASE(StoreLocal);
+			INST_CASE(StoreField);
 
-				// static stack operation
-				//
-				INST_CASE(PushI32);
-				INST_CASE(PushF32);
-				INST_CASE(Pop);
-				INST_CASE(Dup);
+			// static stack operation
+			//
+			INST_CASE(PushI32);
+			INST_CASE(PushF32);
+			INST_CASE(Pop);
+			INST_CASE(Dup);
 
-				// arithmetic
-				//
-				INST_CASE(Add);
-				INST_CASE(Sub);
-				INST_CASE(Mul);
-				INST_CASE(Div);
-				INST_CASE(Rem);
-				INST_CASE(Neg);
+			// arithmetic
+			//
+			INST_CASE(Add);
+			INST_CASE(Sub);
+			INST_CASE(Mul);
+			INST_CASE(Div);
+			INST_CASE(Rem);
+			INST_CASE(Neg);
 
-				// bit operation
-				//
-				INST_CASE(Shl);
-				INST_CASE(Shr);
-				INST_CASE(And);
-				INST_CASE(Or);
-				INST_CASE(Xor);
-				INST_CASE(Rev);
+			// bit operation
+			//
+			INST_CASE(Shl);
+			INST_CASE(Shr);
+			INST_CASE(And);
+			INST_CASE(Or);
+			INST_CASE(Xor);
+			INST_CASE(Rev);
 
-				// comparison
-				//
-				INST_CASE(Eq);
-				INST_CASE(NEq);
-				INST_CASE(Gt);
-				INST_CASE(GtEq);
-				INST_CASE(Ls);
-				INST_CASE(LsEq);
+			// comparison
+			//
+			INST_CASE(Eq);
+			INST_CASE(NEq);
+			INST_CASE(Gt);
+			INST_CASE(GtEq);
+			INST_CASE(Ls);
+			INST_CASE(LsEq);
 
-				// control flow
-				//
-				INST_CASE(Jump);
-				INST_CASE(JumpOnTrue);
-				INST_CASE(JumpOnFalse);
-				INST_CASE(Ret);
-				
-				// type cast
-				//
-				INST_CASE(CastBool);
+			// control flow
+			//
+			INST_CASE(Jump);
+			INST_CASE(JumpOnTrue);
+			INST_CASE(JumpOnFalse);
+			INST_CASE(Ret);
 
-				INST_CASE(CastI8);
-				INST_CASE(CastI16);
-				INST_CASE(CastI32);
-				INST_CASE(CastI64);
+			// type cast
+			//
+			INST_CASE(CastBool);
 
-				INST_CASE(CastU8);
-				INST_CASE(CastU16);
-				INST_CASE(CastU32);
-				INST_CASE(CastU64);
+			INST_CASE(CastI8);
+			INST_CASE(CastI16);
+			INST_CASE(CastI32);
+			INST_CASE(CastI64);
 
-				INST_CASE(CastF32);
-				INST_CASE(CastF64);
+			INST_CASE(CastU8);
+			INST_CASE(CastU16);
+			INST_CASE(CastU32);
+			INST_CASE(CastU64);
 
-				INST_CASE(CastObj);
+			INST_CASE(CastF32);
+			INST_CASE(CastF64);
 
-				// object model
-				//
-				INST_CASE(NewObj);
-				//INST_CASE(Box);
-				//INST_CASE(Unbox);
-				INST_CASE(Call);
+			INST_CASE(CastObj);
 
-			default:
-				// bad opcode!
-				throw 0;
-			}
+			// object model
+			//
+			INST_CASE(NewObj);
+			//INST_CASE(Box);
+			//INST_CASE(Unbox);
+			INST_CASE(Call);
+
+		default:
+			// bad opcode!
+			throw 0;
+
 #undef INST_CASE
 		}
 	}
