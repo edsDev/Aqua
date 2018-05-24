@@ -82,13 +82,15 @@ namespace eds::aqua
 		// object model
 		NewObj,
 		//NewArr,
-		Box,
-		Unbox,
+		//Box,
+		//Unbox,
 		Call
 	};
 	
 	using CodeUnit = uint8_t;
 	using CodeUnitPtr = const CodeUnit*;
+
+	CodeUnitPtr AdvanceOpCode(CodeUnitPtr ptr, int bytes);
 
 	OpCode FetchOpCode(CodeUnitPtr& instRef);
 	int8_t FetchArgI8(CodeUnitPtr& instRef);

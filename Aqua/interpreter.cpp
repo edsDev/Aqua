@@ -1,10 +1,92 @@
 #include "interpreter.h"
+#include <functional>
 
 namespace eds::aqua::interpret 
 {
 #pragma region InstructionImpl
 
+	// auxiliary definitions for instruction implementation
+	//
+
+	template<template<typename> typename F, bool IntegralOnly>
+	void GenericUnaryInstructionImpl(EvalContext& ctx)
+	{
+
+	}
+
+	template<template<typename> typename F, bool IntegralOnly>
+	void GenericBinaryInstructionImpl(EvalContext& ctx)
+	{
+		auto lhs = ctx.EvalStack.PopItem();
+		auto rhs = ctx.EvalStack.PopItem();
+
+		if (lhs.TypeToken != rhs.TypeToken)
+		{
+			throw 0;
+		}
+		if (lhs.TypeToken.IsKlassType())
+		{
+			throw 0;
+		}
+
+		// integral
+		//
+		if (lhs.TypeToken == PrimaryType::Int32)
+		{
+			ctx.EvalStack.PushInt32(F<int32_t>{}(lhs.Value_I32, rhs.Value_I32));
+			return;
+		}
+
+		// float
+		//
+		if constexpr(!IntegralOnly)
+		{
+			if (lhs.TypeToken == PrimaryType::Float32)
+			{
+				ctx.EvalStack.PushFloat32(F<float_t>{}(lhs.Value_F32, rhs.Value_F32));
+			}
+		}
+
+		// bad opcode
+		throw 0;
+	}
+
+	template<template<typename> typename F>
+	void GenericComparisonInstructionImpl(EvalContext& ctx)
+	{
+
+	}
+
+	template<typename TStore, typename TCast>
+	void GenericCastInstructionImpl(EvalContext& ctx)
+	{
+
+	}
+
+	template<typename T>
+	struct ShlHelper
+	{
+		T operator()(T x, T y)
+		{
+			return x << y;
+		}
+	};
+	template<typename T>
+	struct ShrHelper
+	{
+		T operator()(T x, T y)
+		{
+			return x >> y;
+		}
+	};
+
+	// nop
+	//
+
 	void Instruction_Nop(EvalContext& ctx) { }
+
+	// dynamic stack operation
+	//
 
 	void Instruction_LoadArg(EvalContext& ctx)
 	{
@@ -66,13 +148,173 @@ namespace eds::aqua::interpret
 
 	// arithmetic
 	//
+
 	void Instruction_Add(EvalContext& ctx)
 	{
-		auto lhs = ctx.EvalStack.PopItem();
-		auto rhs = ctx.EvalStack.PopItem();
-
-		ctx.EvalStack.PushItem(lhs + rhs);
+		GenericBinaryInstructionImpl<std::plus, false>(ctx);
 	}
+	void Instruction_Sub(EvalContext& ctx)
+	{
+		GenericBinaryInstructionImpl<std::minus, false>(ctx);
+	}
+	void Instruction_Mul(EvalContext& ctx)
+	{
+		GenericBinaryInstructionImpl<std::multiplies, false>(ctx);
+	}
+	void Instruction_Div(EvalContext& ctx)
+	{
+		GenericBinaryInstructionImpl<std::divides, false>(ctx);
+	}
+	void Instruction_Rem(EvalContext& ctx)
+	{
+		GenericBinaryInstructionImpl<std::modulus, true>(ctx);
+	}
+	void Instruction_Neg(EvalContext& ctx)
+	{
+		GenericUnaryInstructionImpl<std::negate, false>(ctx);
+	}
+
+	// bit operation
+	//
+
+	void Instruction_Shl(EvalContext& ctx)
+	{
+		GenericUnaryInstructionImpl<ShlHelper, true>(ctx);
+	}
+	void Instruction_Shr(EvalContext& ctx)
+	{
+		GenericUnaryInstructionImpl<ShrHelper, true>(ctx);
+	}
+	void Instruction_And(EvalContext& ctx)
+	{
+		GenericUnaryInstructionImpl<std::bit_and, true>(ctx);
+	}
+	void Instruction_Or(EvalContext& ctx)
+	{
+		GenericUnaryInstructionImpl<std::bit_or, true>(ctx);
+	}
+	void Instruction_Xor(EvalContext& ctx)
+	{
+		GenericUnaryInstructionImpl<std::bit_xor, true>(ctx);
+	}
+	void Instruction_Rev(EvalContext& ctx)
+	{
+		GenericUnaryInstructionImpl<std::bit_not, true>(ctx);
+	}
+
+	// comparison
+	//
+	void Instruction_Eq(EvalContext& ctx)
+	{
+		GenericComparisonInstructionImpl<std::equal_to>(ctx);
+	}
+	void Instruction_NEq(EvalContext& ctx)
+	{
+		GenericComparisonInstructionImpl<std::not_equal_to>(ctx);
+	}
+	void Instruction_Gt(EvalContext& ctx)
+	{
+		GenericComparisonInstructionImpl<std::greater>(ctx);
+	}
+	void Instruction_GtEq(EvalContext& ctx)
+	{
+		GenericComparisonInstructionImpl<std::greater_equal>(ctx);
+	}
+	void Instruction_Ls(EvalContext& ctx)
+	{
+		GenericComparisonInstructionImpl<std::less>(ctx);
+	}
+	void Instruction_LsEq(EvalContext& ctx)
+	{
+		GenericComparisonInstructionImpl<std::less_equal>(ctx);
+	}
+
+	// 
+	//
+	void Instruction_Jump(EvalContext& ctx)
+	{
+		auto offset = FetchArgI32(ctx.InstPtr);
+
+		ctx.InstPtr = AdvanceOpCode(ctx.Instructions.BeginPtr(), offset);
+	}
+	void Instruction_JumpOnTrue(EvalContext& ctx)
+	{
+		throw 0;
+	}
+	void Instruction_JumpOnFalse(EvalContext& ctx)
+	{
+		throw 0;
+	}
+	void Instruction_Ret(EvalContext& ctx)
+	{
+		throw 0;
+	}
+
+	//
+	//
+	void Instruction_CastBool(EvalContext& ctx)
+	{
+		GenericCastInstructionImpl<int32_t, bool>(ctx);
+	}
+
+	void Instruction_CastI8(EvalContext& ctx)
+	{
+		GenericCastInstructionImpl<int32_t, int8_t>(ctx);
+	}
+	void Instruction_CastI16(EvalContext& ctx)
+	{
+		GenericCastInstructionImpl<int32_t, int16_t>(ctx);
+	}
+	void Instruction_CastI32(EvalContext& ctx)
+	{
+		GenericCastInstructionImpl<int32_t, int32_t>(ctx);
+	}
+	void Instruction_CastI64(EvalContext& ctx)
+	{
+		throw 0;
+	}
+
+	void Instruction_CastU8(EvalContext& ctx)
+	{
+		throw 0;
+	}
+	void Instruction_CastU16(EvalContext& ctx)
+	{
+		throw 0;
+	}
+	void Instruction_CastU32(EvalContext& ctx)
+	{
+		throw 0;
+	}
+	void Instruction_CastU64(EvalContext& ctx)
+	{
+		throw 0;
+	}
+
+	void Instruction_CastF32(EvalContext& ctx)
+	{
+		throw 0;
+	}
+	void Instruction_CastF64(EvalContext& ctx)
+	{
+		throw 0;
+	}
+	void Instruction_CastObj(EvalContext& ctx)
+	{
+		throw 0;
+	}
+
+	// object model
+	//
+	void Instruction_NewObj(EvalContext& ctx)
+	{
+		throw 0;
+	}
+	void Instruction_Call(EvalContext& ctx)
+	{
+		throw 0;
+	}
+
 
 #pragma endregion
 
@@ -163,8 +405,8 @@ namespace eds::aqua::interpret
 				// object model
 				//
 				INST_CASE(NewObj);
-				INST_CASE(Box);
-				INST_CASE(Unbox);
+				//INST_CASE(Box);
+				//INST_CASE(Unbox);
 				INST_CASE(Call);
 
 			default:
