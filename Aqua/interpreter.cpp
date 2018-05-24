@@ -8,32 +8,51 @@ namespace eds::aqua::interpret
 	// auxiliary definitions for instruction implementation
 	//
 
+	[[noreturn]]
+	void ThrowBadOpCode()
+	{
+		throw 0;
+	}
+
+	void TestBinaryOpType(const EvalItem& lhs, const EvalItem& rhs)
+	{
+
+	}
+
+	template<template<typename> typename F, typename TItem, typename TCast>
+	void GenericPerformBinaryCalc(EvalContext& ctx, const EvalItem& lhs, const EvalItem& rhs)
+	{
+		auto lhsValue = lhs.GetValueUnchecked<TItem>();
+		auto rhsValue = rhs.GetValueUnchecked<TItem>();
+		auto result = F<TItem>{}(lhsValue, rhsValue);
+
+		ctx.EvalPush(static_cast<TCast>(result));
+	}
+
 	template<template<typename> typename F, bool IntegralOnly>
 	void GenericUnaryInstructionImpl(EvalContext& ctx)
 	{
-
+		auto item = ctx.EvalPop();
+		
+		if (item.TypeToken == PrimaryType::Int32)
+		{
+			ctx.EvalPush(F<int32_t>{}(item.Value_I32));
+		}
 	}
 
 	template<template<typename> typename F, bool IntegralOnly>
 	void GenericBinaryInstructionImpl(EvalContext& ctx)
 	{
-		auto lhs = ctx.PopEvalStack();
-		auto rhs = ctx.PopEvalStack();
+		auto lhs = ctx.EvalPop();
+		auto rhs = ctx.EvalPop();
 
-		if (lhs.TypeToken != rhs.TypeToken)
-		{
-			throw 0;
-		}
-		if (lhs.TypeToken.IsKlassType())
-		{
-			throw 0;
-		}
+		TestBinaryOpType(lhs, rhs);
 
 		// integral
 		//
 		if (lhs.TypeToken == PrimaryType::Int32)
 		{
-			ctx.PushEvalStack(F<int32_t>{}(lhs.Value_I32, rhs.Value_I32));
+			GenericPerformBinaryCalc<F, int32_t, int32_t>(ctx, lhs, rhs);
 			return;
 		}
 
@@ -43,18 +62,34 @@ namespace eds::aqua::interpret
 		{
 			if (lhs.TypeToken == PrimaryType::Float32)
 			{
-				ctx.PushEvalStack(F<float_t>{}(lhs.Value_F32, rhs.Value_F32));
+				GenericPerformBinaryCalc<F, float_t, float_t>(ctx, lhs, rhs);
 			}
 		}
 
 		// bad opcode
-		throw 0;
+		ThrowBadOpCode();
 	}
 
 	template<template<typename> typename F>
 	void GenericComparisonInstructionImpl(EvalContext& ctx)
 	{
+		auto lhs = ctx.EvalPop();
+		auto rhs = ctx.EvalPop();
 
+		TestBinaryOpType(lhs, rhs);
+
+		if (lhs.TypeToken == PrimaryType::Int32)
+		{
+			GenericPerformBinaryCalc<F, int32_t, int32_t>(ctx, lhs, rhs);
+		}
+		else if (lhs.TypeToken == PrimaryType::Float32)
+		{
+			GenericPerformBinaryCalc<F, float_t, int32_t>(ctx, lhs, rhs);
+		}
+		else
+		{
+			ThrowBadOpCode();
+		}
 	}
 
 	template<typename TStore, typename TCast>
@@ -92,13 +127,13 @@ namespace eds::aqua::interpret
 	{
 		auto index = ctx.FetchInstOrData<int32_t>();
 
-		ctx.PushEvalStack(ctx.ArgumentAt(index));
+		ctx.EvalPush(ctx.ArgumentAt(index));
 	}
 	void Instruction_LoadLocal(EvalContext& ctx)
 	{
 		auto index = ctx.FetchInstOrData<int32_t>();
 
-		ctx.PushEvalStack(ctx.LocalAt(index));
+		ctx.EvalPush(ctx.LocalAt(index));
 	}
 	void Instruction_LoadField(EvalContext& ctx)
 	{
@@ -107,7 +142,7 @@ namespace eds::aqua::interpret
 	void Instruction_StoreArg(EvalContext& ctx)
 	{
 		auto index = ctx.FetchInstOrData<int32_t>();
-		auto item = ctx.PopEvalStack();
+		auto item = ctx.EvalPop();
 		auto& slot = ctx.ArgumentAt(index);
 
 		assert(slot.type == item.type);
@@ -116,7 +151,7 @@ namespace eds::aqua::interpret
 	void Instruction_StoreLocal(EvalContext& ctx)
 	{
 		auto index = ctx.FetchInstOrData<int32_t>();
-		auto item = ctx.PopEvalStack();
+		auto item = ctx.EvalPop();
 		auto& slot = ctx.LocalAt(index);
 
 		assert(slot.type == item.type);
@@ -130,20 +165,20 @@ namespace eds::aqua::interpret
 
 	void Instruction_PushI32(EvalContext& ctx)
 	{
-		ctx.PushEvalStack(ctx.FetchInstOrData<int32_t>());
+		ctx.EvalPush(ctx.FetchInstOrData<int32_t>());
 	}
 	void Instruction_PushF32(EvalContext& ctx)
 	{
-		ctx.PushEvalStack(ctx.FetchInstOrData<float_t>());
+		ctx.EvalPush(ctx.FetchInstOrData<float_t>());
 	}
 
 	void Instruction_Pop(EvalContext& ctx)
 	{
-		ctx.PopEvalStack();
+		ctx.EvalPop();
 	}
 	void Instruction_Dup(EvalContext& ctx)
 	{
-		ctx.DuplicateTopEvalStack();
+		ctx.EvalDuplicateTop();
 	}
 
 	// arithmetic
@@ -239,15 +274,25 @@ namespace eds::aqua::interpret
 	}
 	void Instruction_JumpOnTrue(EvalContext& ctx)
 	{
-		throw 0;
+		auto offset = ctx.FetchInstOrData<int32_t>();
+
+		if (ctx.EvalPop().GetValue<int32_t>())
+		{
+			ctx.JumpTo(offset);
+		}
 	}
 	void Instruction_JumpOnFalse(EvalContext& ctx)
 	{
-		throw 0;
+		auto offset = ctx.FetchInstOrData<int32_t>();
+
+		if (!ctx.EvalPop().GetValue<int32_t>())
+		{
+			ctx.JumpTo(offset);
+		}
 	}
 	void Instruction_Ret(EvalContext& ctx)
 	{
-		throw 0;
+		ctx.Return();
 	}
 
 	//
@@ -318,7 +363,7 @@ namespace eds::aqua::interpret
 
 #pragma endregion
 
-	void Interpreter::Tick()
+	void Interpreter::PerformNextInstruction()
 	{
 		auto& ctx = CurrentContext();
 

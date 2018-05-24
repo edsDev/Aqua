@@ -10,8 +10,10 @@
 
 namespace eds::aqua::interpret
 {
-	struct EvalItem
+	// discriminated union of { monostate_t, int32_t, int64_t, uint32_t, uint32_t, float_t, double_t, Object* }
+	class EvalItem
 	{
+	public:
 		TypeStub TypeToken;
 
 		union
@@ -50,13 +52,18 @@ namespace eds::aqua::interpret
 			TypeToken = PrimaryType::Float32;
 			Value_F32 = value;
 		}
-	};
 
-	class EvalItem2
-	{
-	public:
+		bool IsKlassType() const;
+		bool OfPrimaryType(PrimaryType type) const;
+
 		template<typename T>
-		T GetValue();
+		T GetValue() const;
+
+		template<typename T>
+		T GetValueUnchecked() const;
+
+	private:
+
 	};
 
 	class EvalContext
@@ -71,35 +78,62 @@ namespace eds::aqua::interpret
 
 		//
 		//
-		EvalItem& ArgumentAt(int index);
-		EvalItem& LocalAt(int index);
+		EvalItem& ArgumentAt(int index)
+		{
+			return args_[index];
+		}
+		EvalItem& LocalAt(int index)
+		{
+			return locals_[index];
+		}
 
 		// eval stack operation
 		//
-		void PushEvalStack(EvalItem item);
-		EvalItem PopEvalStack();
+		void EvalPush(EvalItem item)
+		{
+			eval_stack_.push_back(item);
+		}
+		EvalItem EvalPop()
+		{
+			auto result = eval_stack_.back();
+			eval_stack_.pop_back();
 
-		void DuplicateTopEvalStack();
+			return result;
+		}
+
+		void EvalDuplicateTop()
+		{
+			eval_stack_.push_back(eval_stack_.back());
+		}
 
 		// control flow
 		//
-		void JumpTo(int index);
+		void JumpTo(int offset)
+		{
+			inst_ = AdvanceOpCode(method_->Instructions.begin(), offset);
+		}
 
-		void Return();
-		void Return(EvalItem value);
+		void Invoke(const MethodInfo* method)
+		{
 
+		}
+
+		void Return()
+		{
+			interpreter_.PopContext();
+		}
 
 	private:
 		Interpreter& interpreter_;
 
-		vector<EvalItem> evals_;
+		vector<EvalItem> eval_stack_;
 
 		const MethodInfo* method_;
 		// pointer to next instruction
 		CodeUnitPtr inst_;
 
-		HeapArray<EvalItem> args_;
-		HeapArray<EvalItem> locals_;
+		ArrayRef<EvalItem> args_;
+		ArrayRef<EvalItem> locals_;
 	};
 
 	class InterpreterEnvironment
@@ -109,6 +143,7 @@ namespace eds::aqua::interpret
 
 	class Interpreter
 	{
+		friend class EvalContext;
 	public:
 		Interpreter(unique_ptr<InterpreterEnvironment> env);
 
@@ -119,16 +154,26 @@ namespace eds::aqua::interpret
 			// instruction loop
 			while (!context_.empty())
 			{
-				Tick();
+				PerformNextInstruction();
 			}
 		}
 
 	private:
-		void Tick();
+		void PerformNextInstruction();
 
 		EvalContext& CurrentContext()
 		{
 			return context_.back();
+		}
+
+		void PushContext(const MethodInfo* method, ArrayView<EvalItem> args)
+		{
+
+		}
+
+		void PopContext()
+		{
+
 		}
 
 		Object* AllocateObject(const KlassInfo* type)
