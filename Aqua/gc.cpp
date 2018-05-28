@@ -109,18 +109,18 @@ namespace eds::aqua::gc
 		}
 	}
 
-	Object* ManagedHeap::AllocateObject(const KlassInfo* type)
+	ManagedObject* ManagedHeap::AllocateObject(const KlassInfo* type)
 	{
 		assert(type->IsKlassType());
 
-		auto ptr = reinterpret_cast<Object*>(AllocChunk(type->size + sizeof(Object)));
+		auto ptr = reinterpret_cast<ManagedObject*>(AllocChunk(type->size + sizeof(ManagedObject)));
 		ptr->type = type;
 		ptr->flags = 0;
 
 		return ptr;
 	}
 
-	void ManagedHeap::MarkObject(Object* obj)
+	void ManagedHeap::MarkObject(ManagedObject* obj)
 	{
 		// mark this object
 		obj->SetReachableMark(true);
@@ -131,7 +131,7 @@ namespace eds::aqua::gc
 		{
 			if (p->type->IsKlassType())
 			{
-				auto subobj = obj->Visit<Object*>(p->offset);
+				auto subobj = obj->Visit<ManagedObject*>(p->offset);
 
 				if (subobj && !subobj->ReachableMark())
 				{

@@ -4,66 +4,109 @@
 #include "metadata.h"
 #include "object.h"
 #include "gc.h"
+#include "ext\type-utils.h"
 #include <array>
 #include <vector>
 #include <list>
+#include <variant>
 
 namespace eds::aqua::interpret
 {
-	// discriminated union of { monostate_t, int32_t, int64_t, uint32_t, uint32_t, float_t, double_t, Object* }
+	class Interpreter;
+
+	// discriminated union of { int32_t, int64_t, float_t, double_t, Object* }
+	// by default, int32_t is the type
 	class EvalItem
 	{
 	public:
-		TypeStub TypeToken;
+		EvalItem()
+			: value_(static_cast<int32_t>(0)) { }
 
-		union
-		{
-			const uint8_t Dummy[8];
-
-			Object* Value_ObjectPtr;
-
-			int32_t Value_I32;
-			int64_t Value_I64;
-			uint32_t Value_U32;
-			uint64_t Value_U64;
-			
-			float_t Value_F32;
-			double_t Value_F64;
-		};
-
-	public:
-		explicit EvalItem(const KlassInfo* type)
-		{
-			TypeToken = type;
-			Value_ObjectPtr = nullptr;
-		}
-		EvalItem(Object* ptr)
-		{
-			TypeToken = ptr->type;
-			Value_ObjectPtr = ptr;
-		}
+		EvalItem(ManagedObject* ptr)
+			: value_(ptr) { }
 		EvalItem(int32_t value)
-		{
-			TypeToken = PrimaryType::Int32;
-			Value_I32 = value;
-		}
+			: value_(value) { }
+		EvalItem(int64_t value)
+			: value_(value) { }
 		EvalItem(float_t value)
+			: value_(value) { }
+		EvalItem(double_t value)
+			: value_(value) { }
+
+		bool CompareType(const EvalItem& other) const
 		{
-			TypeToken = PrimaryType::Float32;
-			Value_F32 = value;
+			return value_.index() == other.value_.index();
 		}
 
-		bool IsKlassType() const;
-		bool OfPrimaryType(PrimaryType type) const;
+		bool OfKlassType() const
+		{
+			return HoldAlternative<ManagedObject*>();
+		}
+
+		ManagedObject* AsObjectPtr() const
+		{
+			if (OfKlassType())
+			{
+				return GetValueUnchecked<ManagedObject*>();
+			}
+			else
+			{
+				return nullptr;
+			}
+		}
 
 		template<typename T>
-		T GetValue() const;
+		T HoldAlternative() const
+		{
+			VerifyTypeParameter<T>();
+
+			return std::holds_alternative<T>(value_);
+		}
 
 		template<typename T>
-		T GetValueUnchecked() const;
+		T GetValue() const
+		{
+			VerifyTypeParameter<T>();
+
+			if (!std::holds_alternative<T>(value_))
+			{
+				throw 0;
+			}
+
+			return GetValueUnchecked<T>();
+		}
+
+		template<typename T>
+		T GetValueUnchecked() const
+		{
+			VerifyTypeParameter<T>();
+
+			return std::get<T>(value_);
+		}
 
 	private:
+		template<typename T>
+		void VerifyTypeParameter() const
+		{
+			using namespace eds::type;
 
+			constexpr auto condition =
+				same_to_any<int32_t, int64_t, uint32_t, uint64_t, float_t, double_t, ManagedObject*>;
+
+			static_assert(Constraint<T>(condition));
+		}
+
+		using BackingVariant =
+			std::variant<std::monostate, 
+						 int32_t, 
+						 int64_t, 
+						 uint32_t, 
+						 uint64_t, 
+						 float_t, 
+						 double_t, 
+						 ManagedObject*>;
+
+		BackingVariant value_;
 	};
 
 	class EvalContext
@@ -74,7 +117,10 @@ namespace eds::aqua::interpret
 		// opcode operation
 		//
 		template<typename T>
-		T FetchInstOrData();
+		T FetchInstOrData()
+		{
+
+		}
 
 		//
 		//
@@ -126,63 +172,31 @@ namespace eds::aqua::interpret
 	private:
 		Interpreter& interpreter_;
 
+		// evaluation stack for the current method
 		vector<EvalItem> eval_stack_;
 
+		// definition info of the current method
 		const MethodInfo* method_;
+
 		// pointer to next instruction
 		CodeUnitPtr inst_;
 
+		// a modifiable view into arguments in stack
 		ArrayRef<EvalItem> args_;
+
+		// a modifiable view into locals in stack
 		ArrayRef<EvalItem> locals_;
 	};
 
-	class InterpreterEnvironment
+	class RuntimeEnvironment
 	{
-
-	};
-
-	class Interpreter
-	{
-		friend class EvalContext;
-	public:
-		Interpreter(unique_ptr<InterpreterEnvironment> env);
-
-		void Bootstrap()
-		{
-			// invoke main function
-
-			// instruction loop
-			while (!context_.empty())
-			{
-				PerformNextInstruction();
-			}
-		}
-
-	private:
-		void PerformNextInstruction();
-
-		EvalContext& CurrentContext()
-		{
-			return context_.back();
-		}
-
-		void PushContext(const MethodInfo* method, ArrayView<EvalItem> args)
-		{
-
-		}
-
-		void PopContext()
-		{
-
-		}
-
-		Object* AllocateObject(const KlassInfo* type)
+		ManagedObject* AllocateObject(const KlassInfo* type)
 		{
 			auto ptr = heap_.AllocateObject(type);
-			
+
 			// return if object is successfully allocated
 			if (ptr) return ptr;
-			
+
 			// try to collect garbage in the heap and give an attempt again
 			CollectGarbage();
 			ptr = heap_.AllocateObject(type);
@@ -199,9 +213,9 @@ namespace eds::aqua::interpret
 			// mark root objects
 			for (const auto& item : call_stack_)
 			{
-				if (item.TypeToken.IsKlassType() && item.Value_ObjectPtr)
+				if (auto ptr = item.AsObjectPtr(); ptr)
 				{
-					heap_.MarkObject(item.Value_ObjectPtr);
+					heap_.MarkObject(ptr);
 				}
 			}
 
@@ -209,11 +223,49 @@ namespace eds::aqua::interpret
 			heap_.CollectGarbage();
 		}
 
-		// NOTE caller to recover call site!!!!!!
+	private:
+		HeapArray<unique_ptr<Module>> loaded_modules_;
 
-		gc::ManagedHeap heap_;
 
 		vector<EvalItem> call_stack_;
 		std::list<EvalContext> context_;
+		gc::ManagedHeap heap_;
+	};
+
+	class Interpreter
+	{
+		friend class EvalContext;
+	public:
+		Interpreter(unique_ptr<RuntimeEnvironment> env);
+
+		void Bootstrap()
+		{
+			// invoke main function
+
+			// instruction loop
+			while (!context_.empty())
+			{
+				PerformNextInstruction();
+			}
+		}
+
+	private:
+		void PerformNextInstruction();
+
+		void PushContext(const MethodInfo* method, ArrayView<EvalItem> args)
+		{
+
+		}
+
+		void PopContext()
+		{
+
+		}
+
+
+
+		// NOTE caller to recover call site!!!!!!
+
+
 	};
 }

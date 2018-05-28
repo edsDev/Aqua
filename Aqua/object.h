@@ -4,7 +4,7 @@
 
 namespace eds::aqua
 {
-	class Object
+	class ManagedObject
 	{
 	public:
 		const KlassInfo* type;

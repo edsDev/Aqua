@@ -26,9 +26,9 @@ namespace eds::aqua::gc
 		ManagedHeap();
 		~ManagedHeap();
 
-		Object* AllocateObject(const KlassInfo* type);
+		ManagedObject* AllocateObject(const KlassInfo* type);
 
-		void MarkObject(Object* obj);
+		void MarkObject(ManagedObject* obj);
 		void CollectGarbage();
 
 	private:

@@ -14,77 +14,22 @@ namespace eds::aqua::interpret
 		throw 0;
 	}
 
-	void TestBinaryOpType(const EvalItem& lhs, const EvalItem& rhs)
+	template<template<typename> typename F, typename TCast, typename T, typename... Ts>
+	EvalItem CalcGenericUnaryOperation(const EvalItem& item)
 	{
+		using ReturnType =
+			std::conditional_t<std::is_same_v<TCast, void>, T, TCast>;
 
-	}
-
-	template<template<typename> typename F, typename TItem, typename TCast>
-	void GenericPerformBinaryCalc(EvalContext& ctx, const EvalItem& lhs, const EvalItem& rhs)
-	{
-		auto lhsValue = lhs.GetValueUnchecked<TItem>();
-		auto rhsValue = rhs.GetValueUnchecked<TItem>();
-		auto result = F<TItem>{}(lhsValue, rhsValue);
-
-		ctx.EvalPush(static_cast<TCast>(result));
-	}
-
-	template<template<typename> typename F, bool IntegralOnly>
-	void GenericUnaryInstructionImpl(EvalContext& ctx)
-	{
-		auto item = ctx.EvalPop();
-		
-		if (item.TypeToken == PrimaryType::Int32)
+		if (item.HoldAlternative<T>())
 		{
-			ctx.EvalPush(F<int32_t>{}(item.Value_I32));
+			auto value = item.GetValueUnchecked<T>();
+			auto result = F<T>{}(value);
+
+			return static_cast<ReturnType>(result);
 		}
-	}
-
-	template<template<typename> typename F, bool IntegralOnly>
-	void GenericBinaryInstructionImpl(EvalContext& ctx)
-	{
-		auto lhs = ctx.EvalPop();
-		auto rhs = ctx.EvalPop();
-
-		TestBinaryOpType(lhs, rhs);
-
-		// integral
-		//
-		if (lhs.TypeToken == PrimaryType::Int32)
+		else if constexpr (sizeof...(Ts) > 0)
 		{
-			GenericPerformBinaryCalc<F, int32_t, int32_t>(ctx, lhs, rhs);
-			return;
-		}
-
-		// float
-		//
-		if constexpr(!IntegralOnly)
-		{
-			if (lhs.TypeToken == PrimaryType::Float32)
-			{
-				GenericPerformBinaryCalc<F, float_t, float_t>(ctx, lhs, rhs);
-			}
-		}
-
-		// bad opcode
-		ThrowBadOpCode();
-	}
-
-	template<template<typename> typename F>
-	void GenericComparisonInstructionImpl(EvalContext& ctx)
-	{
-		auto lhs = ctx.EvalPop();
-		auto rhs = ctx.EvalPop();
-
-		TestBinaryOpType(lhs, rhs);
-
-		if (lhs.TypeToken == PrimaryType::Int32)
-		{
-			GenericPerformBinaryCalc<F, int32_t, int32_t>(ctx, lhs, rhs);
-		}
-		else if (lhs.TypeToken == PrimaryType::Float32)
-		{
-			GenericPerformBinaryCalc<F, float_t, int32_t>(ctx, lhs, rhs);
+			return CalcGenericBinaryOperation<F, Ts...>(lhs, rhs);
 		}
 		else
 		{
@@ -92,10 +37,124 @@ namespace eds::aqua::interpret
 		}
 	}
 
-	template<typename TStore, typename TCast>
+	template<template<typename> typename F, typename TCast, typename... Ts>
+	void GenericUnaryInstructionImplAux(EvalContext& ctx)
+	{
+		// load operands
+		auto item = ctx.EvalPop();
+
+		// do type checking
+		if (item.OfKlassType())
+		{
+			ThrowBadOpCode();
+		}
+
+		// do calculation and push result back
+		ctx.EvalPush(
+			CalcGenericUnaryOperation<F, TCast, Ts...>(item));
+	}
+
+	template<template<typename> typename F, typename TCast, typename T, typename... Ts>
+	EvalItem CalcGenericBinaryOperation(const EvalItem& lhs, const EvalItem& rhs)
+	{
+		using ReturnType =
+			std::conditional_t<std::is_same_v<TCast, void>, T, TCast>;
+
+		if (lhs.HoldAlternative<T>())
+		{
+			auto lhsValue = lhs.GetValueUnchecked<T>();
+			auto rhsValue = rhs.GetValueUnchecked<T>();
+			auto result = F<T>{}(lhsValue, rhsValue);
+
+			return static_cast<ReturnType>(result);
+		}
+		else if constexpr (sizeof...(Ts) > 0)
+		{
+			return CalcGenericBinaryOperation<F, Ts...>(lhs, rhs);
+		}
+		else
+		{
+			ThrowBadOpCode();
+		}
+	}
+
+	template<template<typename> typename F, typename TCast, typename... Ts>
+	void GenericBinaryInstructionImplAux(EvalContext& ctx)
+	{
+		// load operands
+		auto lhs = ctx.EvalPop();
+		auto rhs = ctx.EvalPop();
+
+		// do type checking
+		if (!lhs.CompareType(rhs) || lhs.OfKlassType())
+		{
+			ThrowBadOpCode();
+		}
+
+		// do calculation and push result back
+		ctx.EvalPush(
+			CalcGenericBinaryOperation<F, TCast, Ts...>(lhs, rhs));
+	}
+
+
+	template<template<typename> typename F, bool IntegralOnly>
+	void GenericUnaryInstructionImpl(EvalContext& ctx)
+	{
+		if constexpr (IntegralOnly)
+		{
+			GenericUnaryInstructionImplAux<F, void, int32_t, int64_t>(ctx);
+		}
+		else
+		{
+			GenericUnaryInstructionImplAux<F, void, int32_t, int64_t, float_t, double_t>(ctx);
+		}
+	}
+
+	//
+	//
+	template<template<typename> typename F, bool IntegralOnly>
+	void GenericBinaryInstructionImpl(EvalContext& ctx)
+	{
+		if constexpr (IntegralOnly)
+		{
+			GenericBinaryInstructionImplAux<F, void, int32_t, int64_t>(ctx);
+		}
+		else
+		{
+			GenericBinaryInstructionImplAux<F, void, int32_t, int64_t, float_t, double_t>(ctx);
+		}
+	}
+
+	template<template<typename> typename F>
+	void GenericComparisonInstructionImpl(EvalContext& ctx)
+	{
+		GenericBinaryInstructionImplAux<F, int32_t, int32_t, int64_t, float_t, double_t>(ctx);
+	}
+
+
+	template<typename TCast, typename T>
+	struct CastHelperImpl
+	{
+		TCast operator()(T x)
+		{
+			return static_cast<TCast>(x);
+		}
+	};
+
+	template<typename TCast>
+	struct CastHelperWrapper
+	{
+		template<typename T>
+		using Type = CastHelperImpl<TCast, T>;
+	};
+
+	template<typename TFinalStore, typename TCast>
 	void GenericCastInstructionImpl(EvalContext& ctx)
 	{
-
+		GenericUnaryInstructionImplAux<
+			CastHelperWrapper<TCast>::template Type,
+			TFinalStore,
+			int32_t, int64_t, float_t, double_t>();
 	}
 
 	template<typename T>
@@ -145,7 +204,7 @@ namespace eds::aqua::interpret
 		auto item = ctx.EvalPop();
 		auto& slot = ctx.ArgumentAt(index);
 
-		assert(slot.type == item.type);
+		assert(slot.CompareType(item));
 		slot = item;
 	}
 	void Instruction_StoreLocal(EvalContext& ctx)
@@ -154,7 +213,7 @@ namespace eds::aqua::interpret
 		auto item = ctx.EvalPop();
 		auto& slot = ctx.LocalAt(index);
 
-		assert(slot.type == item.type);
+		assert(slot.CompareType(item));
 		slot = item;
 	}
 	void Instruction_StoreField(EvalContext& ctx)
@@ -214,27 +273,27 @@ namespace eds::aqua::interpret
 
 	void Instruction_Shl(EvalContext& ctx)
 	{
-		GenericUnaryInstructionImpl<ShlHelper, true>(ctx);
+		GenericBinaryInstructionImpl<ShlHelper, true>(ctx);
 	}
 	void Instruction_Shr(EvalContext& ctx)
 	{
-		GenericUnaryInstructionImpl<ShrHelper, true>(ctx);
+		GenericBinaryInstructionImpl<ShrHelper, true>(ctx);
 	}
 	void Instruction_And(EvalContext& ctx)
 	{
-		GenericUnaryInstructionImpl<std::bit_and, true>(ctx);
+		GenericBinaryInstructionImpl<std::bit_and, true>(ctx);
 	}
 	void Instruction_Or(EvalContext& ctx)
 	{
-		GenericUnaryInstructionImpl<std::bit_or, true>(ctx);
+		GenericBinaryInstructionImpl<std::bit_or, true>(ctx);
 	}
 	void Instruction_Xor(EvalContext& ctx)
 	{
-		GenericUnaryInstructionImpl<std::bit_xor, true>(ctx);
+		GenericBinaryInstructionImpl<std::bit_xor, true>(ctx);
 	}
 	void Instruction_Rev(EvalContext& ctx)
 	{
-		GenericUnaryInstructionImpl<std::bit_not, true>(ctx);
+		GenericBinaryInstructionImpl<std::bit_not, true>(ctx);
 	}
 
 	// comparison
@@ -264,7 +323,7 @@ namespace eds::aqua::interpret
 		GenericComparisonInstructionImpl<std::less_equal>(ctx);
 	}
 
-	// 
+	// control flow
 	//
 	void Instruction_Jump(EvalContext& ctx)
 	{
@@ -295,7 +354,7 @@ namespace eds::aqua::interpret
 		ctx.Return();
 	}
 
-	//
+	// type cast
 	//
 	void Instruction_CastBool(EvalContext& ctx)
 	{
@@ -316,33 +375,33 @@ namespace eds::aqua::interpret
 	}
 	void Instruction_CastI64(EvalContext& ctx)
 	{
-		throw 0;
+		GenericCastInstructionImpl<int64_t, int64_t>(ctx);
 	}
 
 	void Instruction_CastU8(EvalContext& ctx)
 	{
-		throw 0;
+		GenericCastInstructionImpl<int32_t, uint8_t>(ctx);
 	}
 	void Instruction_CastU16(EvalContext& ctx)
 	{
-		throw 0;
+		GenericCastInstructionImpl<int32_t, uint16_t>(ctx);
 	}
 	void Instruction_CastU32(EvalContext& ctx)
 	{
-		throw 0;
+		GenericCastInstructionImpl<int32_t, uint32_t>(ctx);
 	}
 	void Instruction_CastU64(EvalContext& ctx)
 	{
-		throw 0;
+		GenericCastInstructionImpl<int64_t, uint64_t>(ctx);
 	}
 
 	void Instruction_CastF32(EvalContext& ctx)
 	{
-		throw 0;
+		GenericCastInstructionImpl<float_t, float_t>(ctx);
 	}
 	void Instruction_CastF64(EvalContext& ctx)
 	{
-		throw 0;
+		GenericCastInstructionImpl<double_t, double_t>(ctx);
 	}
 	void Instruction_CastObj(EvalContext& ctx)
 	{
