@@ -165,9 +165,9 @@ module private ParsecImpl =
     let pType, pTypeImpl = createParserForwardedToRef()
 
     let pSystemType =
-        [ "unit", BuiltinType.Unit
-          "bool", BuiltinType.Bool
-          "int", BuiltinType.Int ]
+        [ "unit", BuiltinTypeToken.Ty_Unit
+          "bool", BuiltinTypeToken.Ty_Bool
+          "int", BuiltinTypeToken.Ty_Int ]
         |> List.map (fun (text, type') -> stringReturn text type')
         |> choice
         |> withRange1 Syn_SystemType
@@ -435,7 +435,7 @@ module private ParsecImpl =
                 |> pullSpace
             let pBody = pCompoundStmt
 
-            let ret = Syn_SystemType(SynRange.Empty, BuiltinType.Unit)
+            let ret = Syn_SystemType(SynRange.Empty, BuiltinTypeToken.Ty_Unit)
             pipe3 (pModifierGroup .>> pCtor) pParamList pBody
                   (fun modifiers paramList body -> MethodDecl("$ctor", modifiers, MethodDeclarator(paramList, ret), body))
             |>> MethodItem

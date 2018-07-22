@@ -78,7 +78,7 @@ type NameAccessRecord =
     | ArgumentLookupItem of int*string*TypeIdent
     | VariableLookupItem of int*string*TypeIdent*MutabilitySpec
 
-type TranslationEnvironment =
+type TranslationInfo =
     { CurrentModule: ModuleIdent
       CurrentKlass: KlassDefinition
       CurrentMethod: MethodDefinition
@@ -86,27 +86,29 @@ type TranslationEnvironment =
       TypeLookup: TypeLookupTable }
 
 type TranslationContext =
-    { Environment: TranslationEnvironment
+    { GlobalInfo: TranslationInfo
 
       LoopDepth: int
       VariableList: PersistentVector<AstVariableDecl>
       VariableLookup: Map<string, NameAccessRecord>
       ErrorMessages: ErrorMessageList }
 
-let createContext env =
+type TranslationEnv = TranslationContext*SynRange
+
+let createContext info =
     let varLookup =
         let offset = 
-            env.CurrentMethod
+            info.CurrentMethod
             |> MethodDefinition.getModifiers
             |> ModifierGroup.getLifetimeType
             |> function | LifetimeModifier.Static   -> 0 
                         | LifetimeModifier.Instance -> 1
 
-        env.CurrentMethod.Parameters
+        info.CurrentMethod.Parameters
         |> Seq.mapi (fun i (name, t) -> name, ArgumentLookupItem(i + offset, name, t))
         |> Map.ofSeq
 
-    { Environment = env
+    { GlobalInfo = info
 
       LoopDepth = 0
       VariableList = PersistentVector.empty
@@ -117,13 +119,13 @@ module TranslationContext =
     // element proxy
     //
     let getCurrentKlass ctx =
-        ctx.Environment.CurrentKlass
+        ctx.GlobalInfo.CurrentKlass
 
     let getCurrentMethod ctx =
-        ctx.Environment.CurrentMethod
+        ctx.GlobalInfo.CurrentMethod
 
     let getCurrentKlassType ctx =
-        let env = ctx.Environment
+        let env = ctx.GlobalInfo
         UserTypeIdent(env.CurrentModule, env.CurrentKlass.Name)
 
     let getCurrentMethodName ctx =
@@ -141,7 +143,7 @@ module TranslationContext =
         PersistentVector.length ctx.VariableList
 
     let private lookupTypeRecord ctx name =
-         ctx.Environment.TypeLookup
+         ctx.GlobalInfo.TypeLookup
          |> DictView.tryFind name
 
     let lookupKlass ctx name =
@@ -179,102 +181,30 @@ module TranslationContext =
     let insideLoopBody ctx =
         ctx.LoopDepth > 0
 
-    // context transformer
+    // context
     //
+    let getContext =
+        fun (ctx: TranslationContext) -> ctx, ctx
 
-    let restoreScope oldCtx newCtx =
-        { newCtx with VariableLookup = oldCtx.VariableLookup }
+    let restoreScope oldCtx ctx =
+        (), { ctx with VariableLookup = oldCtx.VariableLookup }
 
     let enterLoopBody ctx =
-        { ctx with LoopDepth = ctx.LoopDepth + 1 }
+        (), { ctx with LoopDepth = ctx.LoopDepth + 1 }
 
     let exitLoopBody ctx =
-        { ctx with LoopDepth = ctx.LoopDepth - 1 }
+        (), { ctx with LoopDepth = ctx.LoopDepth - 1 }
 
     let declareVariable name mut type' ctx =
         let id = PersistentVector.length ctx.VariableList
         let decl = AstVariableDecl(name, type', mut)
         let record = VariableLookupItem(id, name, type', mut)
 
-        { ctx with VariableList = ctx.VariableList |> PersistentVector.conj decl
-                   VariableLookup = ctx.VariableLookup |> Map.add name record }
+        (), { ctx with VariableList = ctx.VariableList |> PersistentVector.conj decl
+                       VariableLookup = ctx.VariableLookup |> Map.add name record }
 
     let appendError msg ctx =
-        { ctx with ErrorMessages = msg::ctx.ErrorMessages }
-
-    //
-    //
-
-    let makeEvalResult result ctx =
-        Some result, ctx
-
-    let makeEvalError msg ctx =
-        None, ctx |> appendError msg
-
-    let escapeEvalError ctx =
-        None, ctx
-
-    let bindEvalResult f (x, ctx) =
-        match x with
-        | Some u ->
-            f ctx u
-        | None ->
-            escapeEvalError ctx
-
-    let bindEvalResult2 f (x1, x2, ctx) =
-        match x1, x2 with
-        | Some u, Some v ->
-            f ctx u v
-        | _ ->
-            escapeEvalError ctx
-
-    let bindEvalResult3 f (x1, x2, x3, ctx) =
-        match x1, x2, x3 with
-        | Some u, Some v, Some w ->
-            f ctx u v w
-        | _ ->
-            escapeEvalError ctx
-
-    let processReturn result ctx =
-        match result with
-        | Ok y      -> makeEvalResult y ctx
-        | Error msg -> makeEvalError msg ctx
-
-    let processEvalResult f (x, ctx) =
-        match x with
-        | Some u ->
-            processReturn (f u) ctx
-        | None ->
-            escapeEvalError ctx
-
-    let processEvalResult2 f (x1, x2, ctx) =
-        match x1, x2 with
-        | Some u, Some v ->
-            processReturn (f u v) ctx
-        | _ ->
-            escapeEvalError ctx
-
-    let processEvalResult3 f (x1, x2, x3, ctx) =
-        match x1, x2, x3 with
-        | Some u, Some v, Some w ->
-            processReturn (f u v w) ctx
-        | _ ->
-            escapeEvalError ctx
-
-    let processEvalResultList f (xs, ctx) =
-        if xs |> List.forall Option.isSome then
-            processReturn (f (xs |> List.map Option.get)) ctx
-        else
-            escapeEvalError ctx
-
-    let updateContext f (x, ctx) =
-        x, f ctx
-
-    let updateContext2 f (x1, x2, ctx) =
-        x1, x2, f ctx
-
-    let updateContext3 f (x1, x2, x3, ctx) =
-        x1, x2, x3, f ctx
+        (), { ctx with ErrorMessages = msg::ctx.ErrorMessages }
 
 type PendingMethod =
     | PendingMethod of MethodDefinition*SyntaxStmt
@@ -297,3 +227,37 @@ type TranslationSession =
       
       TypeLookup: DictView<string, KlassAccessRecord>
       PendingKlassList: PendingKlass list }
+
+
+module Translation =
+    let bind k m = 
+        fun (ctx: TranslationContext) -> let (a, ctx') = m ctx in (k a) ctx'
+
+    let return' a = 
+        fun (ctx: TranslationContext) -> a, ctx
+
+    let returnFrom (m: _ * TranslationContext) = 
+        m
+
+    let tryWith m h =
+        fun (ctx: TranslationContext) -> try m ctx with e -> h e ctx
+
+    let tryFinally m h =
+        fun (ctx: TranslationContext) -> try m ctx finally h()
+        
+    let yield' zero error =
+        fun (ctx: TranslationContext) -> zero, { ctx with ErrorMessages = error::ctx.ErrorMessages}
+
+    type TranslationBuilder<'a>(zero: 'a) =
+        member __.Bind(m, k) = bind k m
+        member __.Return(a) = return' a
+        member __.ReturnFrom(m) = returnFrom m
+        member __.Zero() = return' zero
+        member __.TryWith(m, h) = tryWith m h
+        member __.TryFinally(m, h) = tryFinally m h
+        member __.Delay(f) = bind f (return' zero)
+        member __.Yield(error) = yield' zero error
+
+let translateTypeM = Translation.TranslationBuilder(DummyTypeIdent)
+let translateExprM = Translation.TranslationBuilder(Ast_DummyExpr)
+let translateStmtM = Translation.TranslationBuilder(Ast_DummyStmt)

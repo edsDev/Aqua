@@ -5,7 +5,7 @@ namespace eds::aqua
 {
 	CodeUnitPtr AdvanceOpCode(CodeUnitPtr ptr, int bytes)
 	{
-		return reinterpret_cast<CodeUnitPtr>(AdvancePointer(ptr, bytes));
+		return reinterpret_cast<CodeUnitPtr>(AdvancePtr(ptr, bytes));
 	}
 
 	template<typename T>

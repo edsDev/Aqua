@@ -28,12 +28,12 @@ void* heap_end;
 FreeNode* free_list_dummy_head;
 FreeNode* free_list_dummy_tail;
 
-void* AdvancePointer(void* ptr, int bytes)
+void* AdvancePtr(void* ptr, int bytes)
 {
 	return reinterpret_cast<uint8_t*>(ptr) + bytes;
 }
 
-int PointerDistance(void* p1, void* p2)
+int PtrDistance(void* p1, void* p2)
 {
 	return reinterpret_cast<uint8_t*>(p2) - reinterpret_cast<uint8_t*>(p1);
 }
@@ -60,7 +60,7 @@ AllocatedNode* MakeAllocatedNode(void* ptr, int size)
 void Initialize()
 {
 	heap_begin = malloc(kHeapSize);
-	heap_end = AdvancePointer(heap_begin, kHeapSize);
+	heap_end = AdvancePtr(heap_begin, kHeapSize);
 
 	free_list_dummy_head = MakeFreeNode(malloc(sizeof(FreeNode)), 0, nullptr, nullptr);
 	free_list_dummy_tail = MakeFreeNode(malloc(sizeof(FreeNode)), 0, nullptr, nullptr);
@@ -109,7 +109,7 @@ AllocatedNode* Alloc(int sz)
 		else
 		{
 			// shrink chunk for allocation
-			auto new_chunk = MakeFreeNode(AdvancePointer(chunk, sz), chunk->size - sz, chunk->prev, chunk->next);
+			auto new_chunk = MakeFreeNode(AdvancePtr(chunk, sz), chunk->size - sz, chunk->prev, chunk->next);
 			chunk->prev->next = new_chunk;
 			chunk->next->prev = new_chunk;
 
@@ -123,7 +123,7 @@ AllocatedNode* Alloc(int sz)
 
 bool TryMergeChunk(FreeNode* chunk)
 {
-	auto chunk_view = reinterpret_cast<FreeNode*>(AdvancePointer(chunk, chunk->size));
+	auto chunk_view = reinterpret_cast<FreeNode*>(AdvancePtr(chunk, chunk->size));
 	if (chunk_view->dummy != 0 || chunk_view == heap_end)
 	{
 		// - given chunk is the last in the heap
@@ -207,7 +207,7 @@ int main()
 	printf("FREE NODES:\n");
 	for (auto p = free_list_dummy_head->next; p != free_list_dummy_tail; p = p->next)
 	{
-		auto begin_addr = PointerDistance(heap_begin, p);
+		auto begin_addr = PtrDistance(heap_begin, p);
 		auto end_addr = begin_addr + p->size;
 		printf("(%x-%x): %d bytes\n", begin_addr, end_addr, p->size);
 	}

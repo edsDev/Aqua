@@ -2,14 +2,12 @@
 
 open System
 
-[<RequireQualifiedAccess>]
-type BuiltinType =
-    | Unit
-    | Bool
-    | Int
-    | Float
-    | Object
-
+type BuiltinTypeToken =
+    | Ty_Unit
+    | Ty_Bool
+    | Ty_Int
+    | Ty_Float
+    | Ty_Object
 
 type BinaryOp =
     | Op_Assign
@@ -104,8 +102,9 @@ type ModuleIdent =
 // type
 //
 type TypeIdent =
+    | DummyTypeIdent
     // primary type defined in aqua language
-    | SystemTypeIdent of BuiltinType
+    | SystemTypeIdent of BuiltinTypeToken
     // TODO: classify into classes and enums
     // user-defined type
     | UserTypeIdent of ModuleIdent*string
@@ -113,9 +112,7 @@ type TypeIdent =
     | FunctionTypeIdent of FunctionSignature
 
     member m.IsUnitType =
-        match m with
-        | SystemTypeIdent(BuiltinType.Unit) -> true
-        | _ -> false
+        m = SystemTypeIdent(Ty_Unit)
 
     member m.IsBuiltinType =
         match m with
@@ -124,7 +121,7 @@ type TypeIdent =
 
     member m.IsReferenceType =
         match m with
-        | SystemTypeIdent(BuiltinType.Object)
+        | SystemTypeIdent(Ty_Object)
         | UserTypeIdent(_)
         | FunctionTypeIdent(_) ->
             true
@@ -133,13 +130,15 @@ type TypeIdent =
 
     override m.ToString() =
         match m with
+        | DummyTypeIdent ->
+            "undefined"
         | SystemTypeIdent(case) ->
             match case with
-            | BuiltinType.Unit      -> "unit"
-            | BuiltinType.Bool      -> "bool"
-            | BuiltinType.Int       -> "int"
-            | BuiltinType.Float     -> "float"
-            | BuiltinType.Object    -> "object"
+            | Ty_Unit      -> "unit"
+            | Ty_Bool      -> "bool"
+            | Ty_Int       -> "int"
+            | Ty_Float     -> "float"
+            | Ty_Object    -> "object"
         | UserTypeIdent(srcModule, name) ->
             srcModule.ToString() + "::" + name
         | FunctionTypeIdent(sigature) ->
@@ -157,11 +156,11 @@ and FunctionSignature =
         sprintf "(%s) -> %A" (String.Join(",", m.ParamTypeList)) (m.ReturnType)
 
 module TypeIdent =
-    let kUnitType = SystemTypeIdent BuiltinType.Unit
-    let kBoolType = SystemTypeIdent BuiltinType.Bool
-    let kIntType = SystemTypeIdent BuiltinType.Int
-    let kFloatType = SystemTypeIdent BuiltinType.Float
-    let kObjectType = SystemTypeIdent BuiltinType.Object
+    let kUnitType = SystemTypeIdent Ty_Unit
+    let kBoolType = SystemTypeIdent Ty_Bool
+    let kIntType = SystemTypeIdent Ty_Int
+    let kFloatType = SystemTypeIdent Ty_Float
+    let kObjectType = SystemTypeIdent Ty_Object
 
     let makeUserType moduleName typeName =
         UserTypeIdent(moduleName, typeName)

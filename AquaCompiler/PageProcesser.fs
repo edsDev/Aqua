@@ -1,12 +1,12 @@
-﻿module Aqua.PageProcessor
+﻿ module Aqua.PageProcessor
 
 open Aqua.ResultUtils
 open Aqua.CollectionUtils
 open Aqua.Language
+open Aqua.Ast
 open Aqua.Syntax
 open Aqua.ErrorMessage
 open Aqua.Compiler
-open Aqua.Ast
 
 // helpers
 //

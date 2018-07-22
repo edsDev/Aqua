@@ -22,6 +22,8 @@ let rec compileExpr codeBuf expr =
     let emitExpr = compileExpr codeBuf
 
     match expr with
+    | Ast_DummyExpr ->
+        failwith ""
     | Ast_InstanceExpr(t) ->
         emitBytecode <| LoadArg 0
 
@@ -144,6 +146,9 @@ let rec compileStmt codeBuf ctx stmt =
     let emitExpr = compileExpr codeBuf
 
     match stmt with
+    | Ast_DummyStmt ->
+        failwith ""
+
     | Ast_ExpressionStmt(expr) ->
         emitExpr expr
 

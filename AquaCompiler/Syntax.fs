@@ -12,7 +12,7 @@ type SynRange =
         { StartIndex = -1; Length = -1; StartLine = -1; StartColumn = -1 }
 
 type SyntaxType =
-    | Syn_SystemType    of SynRange*BuiltinType
+    | Syn_SystemType    of SynRange*BuiltinTypeToken
     | Syn_UserType      of SynRange*string
     | Syn_FunctionType  of SynRange*SyntaxType list*SyntaxType
 

@@ -59,13 +59,14 @@
     <Compile Include="ResultUtils.fs" />
     <Compile Include="CollectionUtils.fs" />
     <Compile Include="Language.fs" />
-    <Compile Include="Syntax.fs" />
     <Compile Include="Ast.fs" />
+    <Compile Include="Syntax.fs" />
     <Compile Include="Compiler.fs" />
     <Compile Include="Parser.fs" />
     <Compile Include="ErrorMessage.fs" />
     <Compile Include="PageProcesser.fs" />
     <Compile Include="TypeChecker.fs" />
+    <Compile Include="Module.fs" />
     <Compile Include="Bytecode.fs" />
     <Compile Include="CodeGenerator.fs" />
     <Compile Include="Program.fs" />

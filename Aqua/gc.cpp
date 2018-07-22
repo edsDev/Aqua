@@ -17,7 +17,7 @@ namespace eds::aqua::gc
 	void* InitializeAllocatedChunk(void* ptr, int raw_size, int real_size)
 	{
 		memset(ptr, 0, raw_size);
-		memset(AdvancePointer(ptr, raw_size), 0xffffffff, real_size - raw_size);
+		memset(AdvancePtr(ptr, raw_size), 0xffffffff, real_size - raw_size);
 
 		return ptr;
 	}
@@ -25,7 +25,7 @@ namespace eds::aqua::gc
 	ManagedHeap::ManagedHeap()
 	{
 		heap_begin = malloc(kHeapSize);
-		heap_end = AdvancePointer(heap_begin, kHeapSize);
+		heap_end = AdvancePtr(heap_begin, kHeapSize);
 
 		free_list_dummy_head = MakeFreeNode(malloc(sizeof(FreeNode)), 0, nullptr, nullptr);
 		free_list_dummy_tail = MakeFreeNode(malloc(sizeof(FreeNode)), 0, nullptr, nullptr);
@@ -73,7 +73,7 @@ namespace eds::aqua::gc
 			else
 			{
 				// shrink chunk for allocation
-				auto new_chunk = MakeFreeNode(AdvancePointer(chunk, real_size), chunk->size - real_size, chunk->prev, chunk->next);
+				auto new_chunk = MakeFreeNode(AdvancePtr(chunk, real_size), chunk->size - real_size, chunk->prev, chunk->next);
 				chunk->prev->next = new_chunk;
 				chunk->next->prev = new_chunk;
 
@@ -90,7 +90,7 @@ namespace eds::aqua::gc
 		bool hungry = true;
 		while(hungry)
 		{
-			auto chunk_view = reinterpret_cast<FreeNode*>(AdvancePointer(chunk, chunk->size));
+			auto chunk_view = reinterpret_cast<FreeNode*>(AdvancePtr(chunk, chunk->size));
 			if (chunk_view->dummy != 0 || chunk_view == heap_end)
 			{
 				// - given chunk is the last in the heap

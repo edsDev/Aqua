@@ -53,6 +53,7 @@ let makeFieldReference (klassRef: KlassReference) fieldDef =
 //
 
 type AstExpr =
+    | Ast_DummyExpr
     | Ast_InstanceExpr      of TypeIdent
     | Ast_LiteralExpr       of Literal
     | Ast_NameAccessExpr    of TypeIdent*VariableReference
@@ -65,6 +66,7 @@ type AstExpr =
 
     member m.Type =
         match m with
+        | Ast_DummyExpr                     -> DummyTypeIdent
         | Ast_InstanceExpr(t)               -> t
         | Ast_LiteralExpr(literal)          -> literal.Type
         | Ast_NameAccessExpr(t, _)          -> t
@@ -127,6 +129,7 @@ module AstExpr =
 //
 
 type AstStmt =
+    | Ast_DummyStmt
     | Ast_ExpressionStmt    of AstExpr
     | Ast_VarDeclStmt       of int*TypeIdent*AstExpr
     | Ast_ChoiceStmt        of AstExpr*AstStmt*AstStmt option
