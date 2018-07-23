@@ -1,15 +1,23 @@
 #pragma once
 #include <memory>
-#include "container\heap-array.h"
 
 namespace eds::aqua
 {
+	struct KlassDesc;
+
+	struct MethodTable
+	{
+        KlassDesc* Klass;
+
+        int32_t VTableSlotCount;
+        void* VTableSlots;
+	};
+
 	struct TypeHandle
 	{
 
 	};
 
-	struct KlassDesc;
 
 
 	struct VarDesc
@@ -20,7 +28,7 @@ namespace eds::aqua
 
 	struct MethodDesc
 	{
-		KlassDesc* OwnerKlass;
+        MethodTable* MT;
 
 		int32_t ArgSize;
 		int32_t ArgCount;

@@ -4,26 +4,30 @@
     <Filter Include="gc">
       <UniqueIdentifier>{36271ef6-fb24-4bf2-b78d-3e2a194d680a}</UniqueIdentifier>
     </Filter>
-    <Filter Include="md">
-      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
-      <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
-    </Filter>
     <Filter Include="intp">
       <UniqueIdentifier>{7ab84ea5-7c5d-405b-82dd-5a20e964b628}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="vm">
+      <UniqueIdentifier>{4FC737F1-C7A5-4376-A066-2A32D752A2FF}</UniqueIdentifier>
+      <Extensions>cpp;c;cc;cxx;def;odl;idl;hpj;bat;asm;asmx</Extensions>
     </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="rtti.h">
-      <Filter>md</Filter>
+      <Filter>vm</Filter>
     </ClInclude>
     <ClInclude Include="module.h">
-      <Filter>md</Filter>
+      <Filter>vm</Filter>
     </ClInclude>
     <ClInclude Include="object.h">
       <Filter>gc</Filter>
     </ClInclude>
     <ClInclude Include="interpreter.h">
       <Filter>intp</Filter>
+    </ClInclude>
+    <ClInclude Include="data-blob.h" />
+    <ClInclude Include="type-loader.h">
+      <Filter>vm</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

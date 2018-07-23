@@ -92,7 +92,7 @@
       <SDLCheck>false</SDLCheck>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>C:\Users\sunks\Documents\Projects\edslib\edslib\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\Reference\edslib\edslib\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -118,10 +118,12 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="data-blob.h" />
     <ClInclude Include="interpreter.h" />
     <ClInclude Include="module.h" />
     <ClInclude Include="object.h" />
     <ClInclude Include="rtti.h" />
+    <ClInclude Include="type-loader.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />

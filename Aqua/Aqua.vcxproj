@@ -76,7 +76,7 @@
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>C:\Users\sunks\Documents\Projects\Lolita\Lolita;C:\Users\sunks\Documents\Projects\edslib\edslib\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>..\Reference\edslib\edslib\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -128,11 +128,6 @@
     <ClInclude Include="object.h" />
     <ClInclude Include="ptr-arithmetic.h" />
     <ClInclude Include="metadata.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <ProjectReference Include="..\..\edslib\edslib\edslib.vcxproj">
-      <Project>{87e3cade-8749-4988-b3e6-0c9f07e58828}</Project>
-    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
