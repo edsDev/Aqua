@@ -13,12 +13,11 @@ namespace eds::aqua
         void* VTableSlots;
 	};
 
-	struct TypeHandle
+	class TypeHandle
 	{
-
+    private:
+        void* ptr_;
 	};
-
-
 
 	struct VarDesc
 	{

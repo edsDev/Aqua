@@ -25,7 +25,6 @@
     <ClInclude Include="interpreter.h">
       <Filter>intp</Filter>
     </ClInclude>
-    <ClInclude Include="data-blob.h" />
     <ClInclude Include="type-loader.h">
       <Filter>vm</Filter>
     </ClInclude>

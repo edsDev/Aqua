@@ -118,7 +118,6 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="data-blob.h" />
     <ClInclude Include="interpreter.h" />
     <ClInclude Include="module.h" />
     <ClInclude Include="object.h" />
