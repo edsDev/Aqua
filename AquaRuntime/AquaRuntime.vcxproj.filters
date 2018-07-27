@@ -28,6 +28,9 @@
     <ClInclude Include="type-loader.h">
       <Filter>vm</Filter>
     </ClInclude>
+    <ClInclude Include="mdtoken.h">
+      <Filter>vm</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="main.cpp" />

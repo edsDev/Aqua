@@ -119,6 +119,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="interpreter.h" />
+    <ClInclude Include="mdtoken.h" />
     <ClInclude Include="module.h" />
     <ClInclude Include="object.h" />
     <ClInclude Include="rtti.h" />

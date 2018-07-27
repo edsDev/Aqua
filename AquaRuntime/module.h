@@ -1,63 +1,88 @@
 #pragma once
+#include "mdtoken.h"
 #include <memory>
 
 namespace eds::aqua
 {
-	// [BINARY MODULE LAYOUT]
-	// | Header | Dependency Table |
-	// | Type Index Table | Type Definition Table |
-	// | Method Index Table | Method Definition Table |
-	// | Field Definition Table |
-	// | Global String Pool |
-	//
-	// *Header* stores a fixed term "AQUA" and offsets of other components
-	// *Dependency Table* stores a list of module reference
-	// *Type Index Table" stores indices that point into type definition table
-	// *Type Definition Table* stores 
-	//
-	// [HEADER LAYOUT]
-	// - "AQUA"(4 bytes)
-	// - Dependency Table Offset(4 bytes)
-	// - Type Index Table Offset(4 bytes)
-	// - Type Definition Table Offset(4 bytes)
-	// - Method Definition Table Offset(4 bytes)
-	// - Field Definition Table Offset(4 bytes)
-	// - String Blob Offset(4 bytes)
+    struct ModuleHeader
+    {
+        uint32_t TermPadding; // = 'AQUA'
 
-	struct ModuleHeader
-	{
-		uint32_t TermPadding; // = 'AQUA'
+        uint32_t ModuleRefTableOffset;
 
-		uint32_t DependencyTableOffset;
+        uint32_t TypeIndexTableOffset;
 
-		uint32_t TypeIndexTableOffset;
+        uint32_t TypeDefinitionTableOffset;
 
-		uint32_t TypeDefinitionTableOffset;
+        uint32_t MethodIndexTableOffset;
 
-		uint32_t MethodIndexTableOffset;
+        uint32_t MethodDefinitionTableOffset;
 
-		uint32_t MethodDefinitionTableOffset;
+        uint32_t FieldDefinitionTableOffset;
 
-		uint32_t FieldDefinitionTableOffset;
+        uint32_t OpcodeBlobOffset;
 
-		uint32_t OpcodeBlobOffset;
+        uint32_t StringBlobOffset;
+    };
 
-		uint32_t StringBlobOffset;
-	};
+    struct ModuleRefItem
+    {
+        ResToken<res_String> Name;
+        ResToken<res_String> Version;
+    };
 
-	struct DependencyItem
-	{
+    struct TypeRefItem
+    {
+        MdToken<md_ModuleRef> SrcModule;
+        ResToken<res_String> Name;
+    };
 
-	};
+    struct MethodRefItem
+    {
+        MdToken<md_ModuleRef> SrcModule;
+        ResToken<res_String> Name;
+        ResToken<res_Blob> FuncSig;
+    };
 
-	struct MethodDefItem
-	{
-		uint32_t NameOffset;
+    struct FieldRefItem
+    {
+        MdToken<md_ModuleRef> SrcModule;
+        ResToken<res_String> Name;
+        ResToken<res_Blob> TypeSig;
+    };
 
-		uint32_t SourceOffset;
+    struct TypeSpecItem
+    {
+        uint32_t Type; // TypeDef or TypeRef
+        ResToken<res_Blob> TypeArgs;
+    };
 
-		/* OPCODES */
-	};
+    struct MethodSpecItem
+    {
+        uint32_t Method; // MethodDef or MethodRef
+        ResToken<res_Blob> TypeArgs;
+    };
+
+    enum class AccessLevel
+    {
+        Private = 0b00,
+        Protected = 0b01,
+        Internal = 0b10,
+        Public = 0b11,
+    };
+
+    struct TypeDefItem
+    {
+        struct Flags
+        {
+            AccessLevel Access : 2;
+            bool IsVirtual : 1;
+            bool IsAbstract : 1;
+        };
+
+        ResToken<res_String> Name;
+        Flags Flags;
+    };
 
 	// a raw binary module loaded into memory
 	class InMemoryModule
